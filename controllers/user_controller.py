@@ -13,11 +13,15 @@ from util.access_control import (
     ENTERPRISE_ADMIN,
     MEMBER,
     can_access_company,
+    can_access_company_scoped,
     can_assign_role,
     can_manage_user,
     company_scope_filter,
+    effective_company_id,
     is_admin,
     is_enterprise_admin,
+    is_member,
+    resolve_scope_company_id,
 )
 from util.phone import normalize_phone
 from util.reflection import populate_object
@@ -40,7 +44,8 @@ def users_get_all(req: Request, auth_info) -> Response:
         return _forbidden()
 
     query = db.session.query(AppUser).order_by(AppUser.last_name.asc(), AppUser.first_name.asc())
-    query = company_scope_filter(query, AppUser, actor)
+    scope = resolve_scope_company_id(req, actor)
+    query = company_scope_filter(query, AppUser, actor, scope)
     return jsonify({"message": "users found", "results": users_schema.dump(query.all())}), 200
 
 
@@ -52,7 +57,8 @@ def users_assignees_get(req: Request, auth_info) -> Response:
         .filter(AppUser.active.is_(True))
         .order_by(AppUser.last_name.asc(), AppUser.first_name.asc())
     )
-    query = company_scope_filter(query, AppUser, actor)
+    scope = resolve_scope_company_id(req, actor)
+    query = company_scope_filter(query, AppUser, actor, scope)
     return jsonify({"message": "assignees found", "results": assignees_schema.dump(query.all())}), 200
 
 
@@ -115,10 +121,11 @@ def user_add(req: Request, auth_info) -> Response:
     if db.session.query(AppUser).filter(AppUser.email == email).first():
         return jsonify({"message": "A user with that email already exists"}), 409
 
-    company_id = payload.get("company_id", actor.company_id)
+    company_id = payload.get("company_id") or effective_company_id(req, actor, payload)
     role = payload.get("role", MEMBER)
 
-    if not can_access_company(actor, company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, company_id, scope):
         return _forbidden()
 
     if not can_assign_role(actor, role, company_id):

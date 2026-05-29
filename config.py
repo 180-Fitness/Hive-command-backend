@@ -1,7 +1,7 @@
 """Deployment settings for a single enterprise with many subsidiary companies."""
 
 # Parent enterprise (one deployment = one enterprise)
-enterprise_name = "Hive Command"
+enterprise_name = "The Hive Group"
 enterprise_email = "admin@hivecommand.local"
 enterprise_phone = ""
 
@@ -10,6 +10,21 @@ default_company_name = "Corporate HQ"
 default_company_city = ""
 default_company_state = ""
 default_company_postal = ""
+
+# Subsidiary companies under The Hive Group
+hive_group_companies = [
+    {"name": "WhiteRaven Apparel", "code": "WRA", "color": "#1a1a1a"},
+    {"name": "White Raven", "code": "WR", "color": "#2d2d2d"},
+    {"name": "180 Fieldhouse", "code": "180FH", "color": "#0a0a0a"},
+    {"name": "180 Fitness", "code": "180FIT", "color": "#111111"},
+    {"name": "180 Fit Kitchen", "code": "180FK", "color": "#141414"},
+    {"name": "Reciprocity", "code": "RECIP", "color": "#2563EB"},
+    {"name": "Dr. Inks", "code": "DRINKS", "color": "#7C3AED"},
+    {"name": "Kids Rule Daycare", "code": "KRD", "color": "#DB2777"},
+    {"name": "Heart of Utah Foundation", "code": "HOUF", "color": "#DC2626"},
+    {"name": "Anderson Family Properties", "code": "AFP", "color": "#CA8A04"},
+    {"name": "Monroe Mountain Marketing", "code": "MMM", "color": "#16A34A"},
+]
 
 # Bootstrap enterprise administrator
 admin_first_name = "Enterprise"

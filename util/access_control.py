@@ -24,6 +24,60 @@ def can_access_company(user, company_id):
     return str(user.company_id) == str(company_id)
 
 
+def _company_in_enterprise(company_id, enterprise_id):
+    from db import db
+    from models.companies import Company
+
+    company = (
+        db.session.query(Company)
+        .filter(Company.company_id == company_id)
+        .filter(Company.active.is_(True))
+        .first()
+    )
+    if not company:
+        return False
+    return str(company.enterprise_id) == str(enterprise_id)
+
+
+def resolve_scope_company_id(req, actor):
+    """Active company filter from X-Company-Id header or company_id query param."""
+    if not actor:
+        return None
+
+    if not is_enterprise_admin(actor):
+        return str(actor.company_id)
+
+    from util.validate_uuid4 import validate_uuid4
+
+    raw = req.headers.get("X-Company-Id") or req.args.get("company_id")
+    if not raw or not validate_uuid4(raw):
+        return None
+
+    if not _company_in_enterprise(raw, actor.enterprise_id):
+        return None
+
+    return str(raw)
+
+
+def effective_company_id(req, actor, payload=None):
+    """Default company_id for creates when payload omits it."""
+    payload = payload or {}
+    if payload.get("company_id"):
+        return payload.get("company_id")
+
+    scope = resolve_scope_company_id(req, actor)
+    if scope:
+        return scope
+
+    return actor.company_id
+
+
+def can_access_company_scoped(user, company_id, scope_company_id=None):
+    if scope_company_id and str(company_id) != str(scope_company_id):
+        return False
+    return can_access_company(user, company_id)
+
+
 def can_manage_user(actor, target):
     if is_enterprise_admin(actor):
         return True
@@ -32,7 +86,9 @@ def can_manage_user(actor, target):
     return str(actor.user_id) == str(target.user_id)
 
 
-def company_scope_filter(query, model, user):
+def company_scope_filter(query, model, user, scope_company_id=None):
+    if scope_company_id:
+        return query.filter(model.company_id == scope_company_id)
     if is_enterprise_admin(user):
         return query
     return query.filter(model.company_id == user.company_id)

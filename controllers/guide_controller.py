@@ -3,7 +3,14 @@ from flask import Request, Response, jsonify
 from db import db
 from lib.authenticate import authenticate_return_auth
 from models.guides import Guide, guide_schema, guides_schema
-from util.access_control import can_access_company, company_scope_filter, get_actor, is_admin
+from util.access_control import (
+    can_access_company_scoped,
+    company_scope_filter,
+    effective_company_id,
+    get_actor,
+    is_admin,
+    resolve_scope_company_id,
+)
 from util.reflection import populate_object
 from util.validate_uuid4 import validate_uuid4
 
@@ -14,12 +21,13 @@ def guides_get(req: Request, auth_info) -> Response:
     if not actor:
         return jsonify({"message": "Unauthorized"}), 401
 
+    scope = resolve_scope_company_id(req, actor)
     query = (
         db.session.query(Guide)
         .filter(Guide.active.is_(True))
         .order_by(Guide.sort_order.asc(), Guide.title.asc())
     )
-    query = company_scope_filter(query, Guide, actor)
+    query = company_scope_filter(query, Guide, actor, scope)
     return jsonify({"message": "guides found", "results": guides_schema.dump(query.all())}), 200
 
 
@@ -29,8 +37,9 @@ def guides_admin_get(req: Request, auth_info) -> Response:
     if not actor or not is_admin(actor):
         return jsonify({"message": "Forbidden"}), 403
 
+    scope = resolve_scope_company_id(req, actor)
     query = db.session.query(Guide).order_by(Guide.sort_order.asc(), Guide.title.asc())
-    query = company_scope_filter(query, Guide, actor)
+    query = company_scope_filter(query, Guide, actor, scope)
     return jsonify({"message": "guides found", "results": guides_schema.dump(query.all())}), 200
 
 
@@ -47,7 +56,8 @@ def guide_get_by_id(req: Request, guide_id, auth_info) -> Response:
     if not guide:
         return jsonify({"message": "guide not found"}), 404
 
-    if not can_access_company(actor, guide.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, guide.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     if not guide.active and not is_admin(actor):
@@ -67,8 +77,9 @@ def guide_add(req: Request, auth_info) -> Response:
     if not title:
         return jsonify({"message": "Title is required"}), 400
 
-    company_id = payload.get("company_id", actor.company_id)
-    if not can_access_company(actor, company_id):
+    company_id = effective_company_id(req, actor, payload)
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     guide = Guide(
@@ -97,7 +108,8 @@ def guide_update(req: Request, guide_id, auth_info) -> Response:
     if not guide:
         return jsonify({"message": "guide not found"}), 404
 
-    if not can_access_company(actor, guide.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, guide.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     payload = req.get_json() or {}
@@ -132,7 +144,8 @@ def guide_delete(req: Request, guide_id, auth_info) -> Response:
     if not guide:
         return jsonify({"message": "guide not found"}), 404
 
-    if not can_access_company(actor, guide.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, guide.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     guide.active = False

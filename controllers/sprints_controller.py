@@ -7,12 +7,19 @@ from lib.authenticate import authenticate_return_auth
 from models.sprints import Sprint, sprint_schema, sprints_schema
 from models.task_statuses import TaskStatus
 from models.tasks import Task, task_schema
+from util.access_control import (
+    can_access_company_scoped,
+    company_scope_filter,
+    effective_company_id,
+    get_actor,
+    is_admin,
+    resolve_scope_company_id,
+)
+from util.validate_uuid4 import validate_uuid4
 
 _BACKLOG_STATUS_NAMES = frozenset({"Backlog", "Ready"})
 _WORKING_STATUS_NAME = "In Progress"
-from util.access_control import can_access_company, company_scope_filter, get_actor, is_admin
-from util.reflection import populate_object
-from util.validate_uuid4 import validate_uuid4
+_SPRINT_METADATA_FIELDS = frozenset({"name", "start_date", "end_date", "active"})
 
 
 def _sprint_deadline_has_passed(sprint):
@@ -30,13 +37,13 @@ def _archive_sprint(sprint):
     sprint.tasks.clear()
 
 
-def _archive_expired_sprints(actor):
+def _archive_expired_sprints(actor, scope_company_id=None):
     query = (
         db.session.query(Sprint)
         .filter(Sprint.active.is_(True))
         .filter(Sprint.end_date.isnot(None))
     )
-    query = company_scope_filter(query, Sprint, actor)
+    query = company_scope_filter(query, Sprint, actor, scope_company_id)
     archived = False
     for sprint in query.all():
         if _sprint_deadline_has_passed(sprint):
@@ -95,14 +102,15 @@ def sprints_get(req: Request, auth_info) -> Response:
     if not actor:
         return jsonify({"message": "Unauthorized"}), 401
 
-    _archive_expired_sprints(actor)
+    scope = resolve_scope_company_id(req, actor)
+    _archive_expired_sprints(actor, scope)
 
     query = (
         db.session.query(Sprint)
         .filter(Sprint.active.is_(True))
         .order_by(Sprint.created_at.desc(), Sprint.name.asc())
     )
-    query = company_scope_filter(query, Sprint, actor)
+    query = company_scope_filter(query, Sprint, actor, scope)
     rows = query.all()
     results = []
     for sprint in rows:
@@ -123,7 +131,8 @@ def sprint_get_by_id(req: Request, sprint_id, auth_info) -> Response:
     if not sprint:
         return jsonify({"message": "sprint not found"}), 404
 
-    if not can_access_company(actor, sprint.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, sprint.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     if not sprint.active:
@@ -139,25 +148,27 @@ def sprint_get_by_id(req: Request, sprint_id, auth_info) -> Response:
 
 @authenticate_return_auth
 def sprint_add(req: Request, auth_info) -> Response:
-    payload = req.get_json() or {}
-    company_id = payload.get("company_id", auth_info.user.company_id)
+    actor = get_actor(auth_info)
+    if not actor:
+        return jsonify({"message": "Unauthorized"}), 401
 
-    if not can_access_company(auth_info.user, company_id):
+    payload = req.get_json() or {}
+    company_id = effective_company_id(req, actor, payload)
+
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     sprint = Sprint(
         company_id=company_id,
         name=payload.get("name", "").strip() or "Sprint",
-        created_by_id=auth_info.user_id,
+        created_by_id=actor.user_id,
         start_date=payload.get("start_date"),
         end_date=payload.get("end_date"),
     )
     db.session.add(sprint)
     db.session.commit()
     return jsonify({"message": "sprint added", "results": _sprint_with_tasks(sprint)}), 201
-
-
-_SPRINT_METADATA_FIELDS = frozenset({"name", "start_date", "end_date", "active"})
 
 
 @authenticate_return_auth
@@ -173,7 +184,8 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
     if not sprint or not sprint.active:
         return jsonify({"message": "sprint not found"}), 404
 
-    if not can_access_company(actor, sprint.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, sprint.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     payload = req.get_json() or {}
@@ -189,11 +201,12 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
     task_id = payload.get("task_id")
     if task_id and validate_uuid4(task_id):
         task = db.session.query(Task).filter(Task.task_id == task_id).first()
-        if task and can_access_company(actor, task.company_id):
-            if task in sprint.tasks:
-                _remove_task_from_sprint(sprint, task)
-            else:
-                _add_task_to_sprint(sprint, task)
+        if task and can_access_company_scoped(actor, task.company_id, scope):
+            if str(task.company_id) == str(sprint.company_id):
+                if task in sprint.tasks:
+                    _remove_task_from_sprint(sprint, task)
+                else:
+                    _add_task_to_sprint(sprint, task)
 
     task_ids = payload.get("task_ids")
     if task_ids and isinstance(task_ids, list):
@@ -204,7 +217,9 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
             .all()
         )
         for task in tasks:
-            if not can_access_company(actor, task.company_id):
+            if not can_access_company_scoped(actor, task.company_id, scope):
+                continue
+            if str(task.company_id) != str(sprint.company_id):
                 continue
             if payload.get("action") == "remove":
                 _remove_task_from_sprint(sprint, task)
@@ -231,7 +246,8 @@ def sprint_delete(req: Request, sprint_id, auth_info) -> Response:
     if not sprint:
         return jsonify({"message": "sprint not found"}), 404
 
-    if not can_access_company(actor, sprint.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, sprint.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     sprint.tasks.clear()

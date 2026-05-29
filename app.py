@@ -16,6 +16,7 @@ from models.enterprise import Enterprise
 from models.task_statuses import TaskStatus
 from util.access_control import ENTERPRISE_ADMIN
 from util.blueprints import register_blueprints
+from util.company_seed import ensure_company_task_statuses, seed_hive_group_companies
 
 load_dotenv()
 
@@ -69,6 +70,9 @@ def seed_bootstrap_data(bcrypt):
         )
         db.session.add(enterprise)
         db.session.commit()
+    elif enterprise.name != config.enterprise_name:
+        enterprise.name = config.enterprise_name
+        db.session.commit()
 
     company = (
         query(Company)
@@ -92,17 +96,9 @@ def seed_bootstrap_data(bcrypt):
         db.session.commit()
 
     if not query(TaskStatus).filter(TaskStatus.company_id == company.company_id).first():
-        for index, status_name in enumerate(config.default_task_statuses):
-            db.session.add(
-                TaskStatus(
-                    company_id=company.company_id,
-                    name=status_name,
-                    color=choice(config.palette),
-                    is_default=index == 0,
-                    sort_order=index,
-                )
-            )
-        db.session.commit()
+        ensure_company_task_statuses(company.company_id)
+
+    seed_hive_group_companies(enterprise.enterprise_id)
 
     admin = query(AppUser).filter(AppUser.email == config.admin_email).first()
     if not admin:
@@ -150,7 +146,7 @@ CORS(
     app,
     origins=_cors_origins(),
     supports_credentials=True,
-    allow_headers=["Content-Type", "auth"],
+    allow_headers=["Content-Type", "auth", "X-Company-Id"],
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 Marshmallow(app)

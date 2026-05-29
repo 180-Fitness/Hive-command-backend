@@ -8,7 +8,13 @@ from models.app_users import AppUser
 from models.comments import Comment
 from models.task_statuses import TaskStatus
 from models.tasks import Task, task_detail_schema, task_schema
-from util.access_control import can_access_company, company_scope_filter, get_actor
+from util.access_control import (
+    can_access_company_scoped,
+    company_scope_filter,
+    effective_company_id,
+    get_actor,
+    resolve_scope_company_id,
+)
 from util.reflection import populate_object
 from util.validate_uuid4 import validate_uuid4
 
@@ -75,7 +81,8 @@ def tasks_backlog_get(req: Request, auth_info) -> Response:
         .filter(TaskStatus.name.in_(backlog_names))
         .order_by(Task.created_at.desc())
     )
-    query = company_scope_filter(query, Task, actor)
+    scope = resolve_scope_company_id(req, actor)
+    query = company_scope_filter(query, Task, actor, scope)
 
     return jsonify(
         {
@@ -97,7 +104,8 @@ def tasks_get(req: Request, auth_info) -> Response:
         .filter(Task.active.is_(True))
         .order_by(Task.created_at.desc())
     )
-    query = company_scope_filter(query, Task, actor)
+    scope = resolve_scope_company_id(req, actor)
+    query = company_scope_filter(query, Task, actor, scope)
     return jsonify(
         {"message": "tasks found", "results": _serialize_task_list(query.all())}
     ), 200
@@ -116,7 +124,8 @@ def tasks_my_get(req: Request, auth_info) -> Response:
         .filter(Task.assignees.any(AppUser.user_id == actor.user_id))
         .order_by(Task.created_at.desc())
     )
-    query = company_scope_filter(query, Task, actor)
+    scope = resolve_scope_company_id(req, actor)
+    query = company_scope_filter(query, Task, actor, scope)
     return jsonify(
         {"message": "my tasks found", "results": _serialize_task_list(query.all())}
     ), 200
@@ -135,7 +144,8 @@ def task_get_by_id(req: Request, task_id, auth_info) -> Response:
     if not task:
         return jsonify({"message": "task not found"}), 404
 
-    if not can_access_company(actor, task.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, task.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     return jsonify({"message": "task found", "results": _serialize_task_detail(task)}), 200
@@ -189,9 +199,10 @@ def task_add(req: Request, auth_info) -> Response:
         return jsonify({"message": "Unauthorized"}), 401
 
     payload = req.get_json() or {}
-    company_id = payload.get("company_id", actor.company_id)
+    company_id = effective_company_id(req, actor, payload)
 
-    if not can_access_company(actor, company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     task_status_id = payload.get("task_status_id") or _default_status_id(company_id)
@@ -231,7 +242,8 @@ def task_update(req: Request, task_id, auth_info) -> Response:
     if not task:
         return jsonify({"message": "task not found"}), 404
 
-    if not can_access_company(actor, task.company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, task.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     payload = dict(req.get_json() or {})
@@ -242,7 +254,7 @@ def task_update(req: Request, task_id, auth_info) -> Response:
             return jsonify({"message": "invalid assignee id"}), 400
 
         user = db.session.query(AppUser).filter(AppUser.user_id == assignee_id).first()
-        if not user or not can_access_company(actor, user.company_id):
+        if not user or not can_access_company_scoped(actor, user.company_id, scope):
             return jsonify({"message": "assignee not found"}), 404
 
         if user in task.assignees:
