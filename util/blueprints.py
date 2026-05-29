@@ -1,0 +1,26 @@
+import routes
+
+
+def register_blueprints(app):
+    app.register_blueprint(routes.auth)
+    app.register_blueprint(routes.enterprise)
+    app.register_blueprint(routes.companies)
+    app.register_blueprint(routes.app_users)
+    app.register_blueprint(routes.task_statuses)
+    app.register_blueprint(routes.projects)
+    app.register_blueprint(routes.tasks)
+    app.register_blueprint(routes.tags)
+    app.register_blueprint(routes.sprints)
+    app.register_blueprint(routes.comments)
+    app.register_blueprint(routes.time_entries)
+    app.register_blueprint(routes.clients)
+    app.register_blueprint(routes.notifications)
+    app.register_blueprint(routes.search)
+    app.register_blueprint(routes.import_data)
+    app.register_blueprint(routes.export_data)
+    app.register_blueprint(routes.docker)
+    app.register_blueprint(routes.guides)
+    app.register_blueprint(routes.custom_fields)
+    app.register_blueprint(routes.custom_field_options)
+    app.register_blueprint(routes.custom_field_values)
+    app.register_blueprint(routes.record_types)

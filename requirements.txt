@@ -1,0 +1,13 @@
+bcrypt==4.1.2
+Flask==2.3.3
+Flask-Bcrypt==1.0.1
+Flask-Cors==4.0.0
+flask-marshmallow==0.15.0
+Flask-Migrate==4.0.5
+Flask-SQLAlchemy==3.0.5
+marshmallow==3.20.2
+marshmallow-sqlalchemy==0.29.0
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+SQLAlchemy==2.0.25
+gunicorn==21.2.0
