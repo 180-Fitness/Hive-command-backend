@@ -20,7 +20,19 @@ from util.blueprints import register_blueprints
 load_dotenv()
 
 
+def _normalize_database_url(url):
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+psycopg2://", 1)
+    if url.startswith("postgresql://") and "+psycopg2" not in url:
+        return url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    return url
+
+
 def _database_uri():
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return _normalize_database_url(database_url)
+
     host = os.getenv("DATABASE_HOST", "127.0.0.1")
     port = os.getenv("DATABASE_PORT", "5432")
     name = os.getenv("DATABASE_NAME", config.database_name)
@@ -96,7 +108,9 @@ def seed_bootstrap_data(bcrypt):
     if not admin:
         password = os.getenv("HIVE_ADMIN_PASSWORD", "")
         if not password:
-            password = input(f"Enter a password for {config.admin_email}: ")
+            raise RuntimeError(
+                "HIVE_ADMIN_PASSWORD must be set in the environment before first deploy."
+            )
 
         admin = AppUser(
             enterprise_id=enterprise.enterprise_id,
