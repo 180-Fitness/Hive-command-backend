@@ -35,6 +35,18 @@ def _database_uri():
     return f"postgresql+psycopg2://{credentials}@{host}:{port}/{name}"
 
 
+def _cors_origins():
+    origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    for url in os.getenv("FRONTEND_URL", "").split(","):
+        url = url.strip().rstrip("/")
+        if url and url not in origins:
+            origins.append(url)
+    return origins
+
+
 def seed_bootstrap_data(bcrypt):
     enterprise = query(Enterprise).first()
     if not enterprise:
@@ -122,10 +134,7 @@ app = create_app()
 bcrypt = Bcrypt(app)
 CORS(
     app,
-    origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    origins=_cors_origins(),
     supports_credentials=True,
     allow_headers=["Content-Type", "auth"],
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
