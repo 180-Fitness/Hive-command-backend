@@ -17,6 +17,7 @@ from models.task_statuses import TaskStatus
 from util.access_control import ENTERPRISE_ADMIN
 from util.blueprints import register_blueprints
 from util.company_seed import ensure_company_task_statuses, seed_hive_group_companies
+from util.user_companies import backfill_user_company_assignments
 
 load_dotenv()
 
@@ -99,6 +100,7 @@ def seed_bootstrap_data(bcrypt):
         ensure_company_task_statuses(company.company_id)
 
     seed_hive_group_companies(enterprise.enterprise_id)
+    backfill_user_company_assignments()
 
     admin = query(AppUser).filter(AppUser.email == config.admin_email).first()
     if not admin:

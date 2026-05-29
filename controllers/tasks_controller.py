@@ -9,6 +9,7 @@ from models.comments import Comment
 from models.task_statuses import TaskStatus
 from models.tasks import Task, task_detail_schema, task_schema
 from util.access_control import (
+    can_access_company,
     can_access_company_scoped,
     company_scope_filter,
     effective_company_id,
@@ -254,7 +255,7 @@ def task_update(req: Request, task_id, auth_info) -> Response:
             return jsonify({"message": "invalid assignee id"}), 400
 
         user = db.session.query(AppUser).filter(AppUser.user_id == assignee_id).first()
-        if not user or not can_access_company_scoped(actor, user.company_id, scope):
+        if not user or not can_access_company(user, task.company_id):
             return jsonify({"message": "assignee not found"}), 404
 
         if user in task.assignees:

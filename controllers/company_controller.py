@@ -9,6 +9,7 @@ from util.access_control import (
     is_enterprise_admin,
     resolve_scope_company_id,
 )
+from util.user_companies import get_user_company_ids
 from util.company_seed import ensure_company_task_statuses
 from util.phone import normalize_phone
 from util.reflection import populate_object
@@ -25,7 +26,8 @@ def companies_get(req: Request, auth_info) -> Response:
     if is_enterprise_admin(actor):
         query = query.filter(Company.enterprise_id == actor.enterprise_id)
     else:
-        query = query.filter(Company.company_id == actor.company_id)
+        allowed = list(get_user_company_ids(actor))
+        query = query.filter(Company.company_id.in_(allowed))
 
     rows = query.all()
     return jsonify({"message": "companies found", "results": companies_schema.dump(rows)}), 200
