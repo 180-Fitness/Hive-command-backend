@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from flask import Request, Response, jsonify
 from flask_bcrypt import check_password_hash
 
+from sqlalchemy.orm import joinedload
+
 import config
 from db import db
 from lib.authenticate import authenticate_return_auth
@@ -24,6 +26,7 @@ def auth_token_add(req: Request) -> Response:
 
     user = (
         db.session.query(AppUser)
+        .options(joinedload(AppUser.assigned_companies))
         .filter(AppUser.email == email)
         .filter(AppUser.active.is_(True))
         .first()
@@ -69,7 +72,12 @@ def auth_token_remove(req: Request, auth_info) -> Response:
 
 @authenticate_return_auth
 def auth_check_login(req: Request, auth_info) -> Response:
-    user = db.session.query(AppUser).filter(AppUser.user_id == auth_info.user_id).first()
+    user = (
+        db.session.query(AppUser)
+        .options(joinedload(AppUser.assigned_companies))
+        .filter(AppUser.user_id == auth_info.user_id)
+        .first()
+    )
     return jsonify(
         {
             "message": "success",

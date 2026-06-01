@@ -1,10 +1,16 @@
 from flask import Request, Response, jsonify
 
 from db import db
-from lib.authenticate import authenticate, authenticate_return_auth
-from models.app_users import AppUser
+from lib.authenticate import authenticate_return_auth
 from models.companies import Company, company_schema, companies_schema
-from util.access_control import can_access_company, company_scope_filter, is_enterprise_admin
+from util.access_control import (
+    can_access_company_scoped,
+    get_actor,
+    is_enterprise_admin,
+    resolve_scope_company_id,
+)
+from util.user_companies import get_user_company_ids
+from util.company_seed import ensure_company_task_statuses
 from util.phone import normalize_phone
 from util.reflection import populate_object
 from util.validate_uuid4 import validate_uuid4
@@ -12,18 +18,27 @@ from util.validate_uuid4 import validate_uuid4
 
 @authenticate_return_auth
 def companies_get(req: Request, auth_info) -> Response:
-    actor = db.session.query(AppUser).filter(AppUser.user_id == auth_info.user_id).first()
-    if not is_enterprise_admin(actor):
-        return jsonify({"message": "Forbidden"}), 403
+    actor = get_actor(auth_info)
+    if not actor:
+        return jsonify({"message": "Unauthorized"}), 401
 
     query = db.session.query(Company).filter(Company.active.is_(True)).order_by(Company.name.asc())
-    query = company_scope_filter(query, Company, actor)
+    if is_enterprise_admin(actor):
+        query = query.filter(Company.enterprise_id == actor.enterprise_id)
+    else:
+        allowed = list(get_user_company_ids(actor))
+        query = query.filter(Company.company_id.in_(allowed))
+
     rows = query.all()
     return jsonify({"message": "companies found", "results": companies_schema.dump(rows)}), 200
 
 
 @authenticate_return_auth
 def company_get_by_id(req: Request, company_id, auth_info) -> Response:
+    actor = get_actor(auth_info)
+    if not actor:
+        return jsonify({"message": "Unauthorized"}), 401
+
     if not validate_uuid4(company_id):
         return jsonify({"message": "invalid company id"}), 404
 
@@ -31,7 +46,8 @@ def company_get_by_id(req: Request, company_id, auth_info) -> Response:
     if not company:
         return jsonify({"message": "company not found"}), 404
 
-    if not can_access_company(auth_info.user, company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     return jsonify({"message": "company found", "results": company_schema.dump(company)}), 200
@@ -51,11 +67,16 @@ def company_add(req: Request, auth_info) -> Response:
     company.phone = normalize_phone(company.phone)
     db.session.add(company)
     db.session.commit()
+    ensure_company_task_statuses(company.company_id)
     return jsonify({"message": "company added", "results": company_schema.dump(company)}), 201
 
 
 @authenticate_return_auth
 def company_update(req: Request, company_id, auth_info) -> Response:
+    actor = get_actor(auth_info)
+    if not actor:
+        return jsonify({"message": "Unauthorized"}), 401
+
     if not validate_uuid4(company_id):
         return jsonify({"message": "invalid company id"}), 404
 
@@ -63,7 +84,8 @@ def company_update(req: Request, company_id, auth_info) -> Response:
     if not company:
         return jsonify({"message": "company not found"}), 404
 
-    if not is_enterprise_admin(auth_info.user) and not can_access_company(auth_info.user, company_id):
+    scope = resolve_scope_company_id(req, actor)
+    if not is_enterprise_admin(actor) and not can_access_company_scoped(actor, company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
     payload = req.get_json() or {}
