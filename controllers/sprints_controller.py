@@ -15,7 +15,7 @@ from util.access_control import (
     is_admin,
     resolve_scope_company_id,
 )
-from util.company_workflow import backlog_status_names, sprint_promote_status_name
+from util.task_sprint import add_task_to_sprint, remove_task_from_sprint
 from util.validate_uuid4 import validate_uuid4
 _SPRINT_METADATA_FIELDS = frozenset({"name", "start_date", "end_date", "active"})
 
@@ -61,39 +61,6 @@ def _sprint_with_tasks(sprint):
     data = sprint_schema.dump(sprint)
     data["tasks"] = [_serialize_sprint_task(task) for task in sprint.tasks]
     return data
-
-
-def _promote_task_entering_sprint(task):
-    """Move workflow status off backlog when work enters a sprint."""
-    status = (
-        db.session.query(TaskStatus)
-        .filter(TaskStatus.task_status_id == task.task_status_id)
-        .first()
-    )
-    backlog_names = set(backlog_status_names(task.company_id))
-    if not status or status.name not in backlog_names:
-        return
-
-    promote_name = sprint_promote_status_name(task.company_id)
-    next_status = (
-        db.session.query(TaskStatus)
-        .filter(TaskStatus.company_id == task.company_id)
-        .filter(TaskStatus.name == promote_name)
-        .first()
-    )
-    if next_status:
-        task.task_status_id = next_status.task_status_id
-
-
-def _add_task_to_sprint(sprint, task):
-    if task not in sprint.tasks:
-        sprint.tasks.append(task)
-        _promote_task_entering_sprint(task)
-
-
-def _remove_task_from_sprint(sprint, task):
-    if task in sprint.tasks:
-        sprint.tasks.remove(task)
 
 
 @authenticate_return_auth
@@ -204,9 +171,9 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
         if task and can_access_company_scoped(actor, task.company_id, scope):
             if str(task.company_id) == str(sprint.company_id):
                 if task in sprint.tasks:
-                    _remove_task_from_sprint(sprint, task)
+                    remove_task_from_sprint(sprint, task)
                 else:
-                    _add_task_to_sprint(sprint, task)
+                    add_task_to_sprint(sprint, task)
 
     task_ids = payload.get("task_ids")
     if task_ids and isinstance(task_ids, list):
@@ -222,9 +189,9 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
             if str(task.company_id) != str(sprint.company_id):
                 continue
             if payload.get("action") == "remove":
-                _remove_task_from_sprint(sprint, task)
+                remove_task_from_sprint(sprint, task)
             else:
-                _add_task_to_sprint(sprint, task)
+                add_task_to_sprint(sprint, task)
 
     for field in metadata_updates:
         setattr(sprint, field, payload[field])

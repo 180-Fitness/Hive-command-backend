@@ -50,19 +50,42 @@ default_task_statuses = [
 # Company-specific workflow statuses (name must match companies.name in hive_group_companies)
 company_task_statuses = {
     "White Raven": [
-        {"name": "Shoot, Edit - Katie", "color": "#2563EB"},
-        {"name": "Online, Data - Ashli", "color": "#7C3AED"},
-        {"name": "Printing - Martha", "color": "#CA8A04"},
-        {"name": "QC - Ashli", "color": "#16A34A"},
+        {"name": "Shoot, Edit", "color": "#2563EB"},
+        {"name": "Online, Data", "color": "#7C3AED"},
+        {"name": "Printing", "color": "#CA8A04"},
+        {"name": "QC", "color": "#16A34A"},
+        {"name": "Done", "color": "#0891B2"},
     ],
+}
+
+company_task_status_renames = {
+    "White Raven": {
+        "Shoot, Edit - Katie": "Shoot, Edit",
+        "Online, Data - Ashli": "Online, Data",
+        "Printing - Martha": "Printing",
+        "QC - Ashli": "QC",
+    },
 }
 
 company_project_board_views = {
     "White Raven": {
-        "backlog": ["Shoot, Edit - Katie"],
-        "working": ["Online, Data - Ashli", "Printing - Martha"],
-        "done": ["QC - Ashli"],
-        "sprint_promote_to": "Online, Data - Ashli",
+        "backlog": ["Shoot, Edit"],
+        "working": ["Online, Data", "Printing", "QC"],
+        "done": ["Done"],
+        "sprint_promote_to": "Online, Data",
+        "mark_done_requires_status": "QC",
+    },
+}
+
+# White Raven: calendar shoots auto-create a school project + assigned task
+company_calendar_task_sync = {
+    "White Raven": {
+        "shoot_event_types": ["Fall Picture Day", "Retake Fall Picture Day"],
+        "shoot_keyword": "shoot",
+        "assignee": {"first_name": "Katie", "last_name": "Gleave"},
+        "task_status": "Shoot, Edit",
+        "my_tasks_require_sprint": True,
+        "backlog_until_picture_day": True,
     },
 }
 
@@ -75,6 +98,16 @@ palette = [
     "#16A34A",
     "#0891B2",
     "#4F46E5",
+]
+
+# TV dashboard kiosk logins (one account per company)
+dashboard_accounts = [
+    {
+        "username": "whiteraven-dashboard",
+        "company_name": "White Raven",
+        "password_env": "DASHBOARD_WHITERAVEN_PASSWORD",
+        "default_password": "Test123!",
+    },
 ]
 
 # Project UI uses three columns: backlog (no sprint), in sprint, done (status name).

@@ -27,6 +27,9 @@ class Task(db.Model):
     description = db.Column(db.String(), nullable=False, default="")
     points_estimate = db.Column(db.Float(), nullable=True)
     due_date = db.Column(db.Date(), nullable=True)
+    calendar_event_id = db.Column(
+        UUID(as_uuid=True), db.ForeignKey("calendar_events.calendar_event_id"), nullable=True
+    )
     created_by_id = db.Column(UUID(as_uuid=True), db.ForeignKey("app_users.user_id"), nullable=False)
     active = db.Column(db.Boolean(), nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
@@ -57,6 +60,7 @@ class Task(db.Model):
         project_id=None,
         points_estimate=None,
         due_date=None,
+        calendar_event_id=None,
         active=True,
     ):
         self.company_id = company_id
@@ -67,6 +71,7 @@ class Task(db.Model):
         self.project_id = project_id
         self.points_estimate = points_estimate
         self.due_date = due_date
+        self.calendar_event_id = calendar_event_id
         self.active = active
 
 

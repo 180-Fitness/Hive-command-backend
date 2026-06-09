@@ -22,6 +22,12 @@ def projects_get(req: Request, auth_info) -> Response:
         return jsonify({"message": "Unauthorized"}), 401
 
     scope = resolve_scope_company_id(req, actor)
+    if scope:
+        from util.white_raven_calendar_sync import prune_future_picture_day_projects
+
+        if prune_future_picture_day_projects(scope):
+            db.session.commit()
+
     query = db.session.query(Project).filter(Project.active.is_(True)).order_by(Project.name.asc())
     query = company_scope_filter(query, Project, actor, scope)
     return jsonify({"message": "projects found", "results": projects_schema.dump(query.all())}), 200

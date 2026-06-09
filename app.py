@@ -156,7 +156,7 @@ CORS(
     app,
     origins=_cors_origins(),
     supports_credentials=True,
-    allow_headers=["Content-Type", "auth", "X-Company-Id"],
+    allow_headers=["Content-Type", "auth", "dashboard-auth", "X-Company-Id"],
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 Marshmallow(app)

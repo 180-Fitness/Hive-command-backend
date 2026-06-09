@@ -18,6 +18,11 @@ from util.access_control import (
     resolve_scope_company_id,
 )
 from util.calendar_reminders import generate_calendar_reminders
+from util.white_raven_calendar_sync import (
+    promote_due_calendar_shoots_to_sprint,
+    sync_calendar_event_to_task,
+    sync_company_calendar_shoots,
+)
 from util.numbers_sync import parse_event_date_from_payload, parse_numbers_calendar
 from util.reflection import populate_object
 from util.validate_uuid4 import validate_uuid4
@@ -113,6 +118,10 @@ def calendar_events_get(req: Request, auth_info) -> Response:
         except ValueError:
             return jsonify({"message": "Invalid end date"}), 400
 
+    if scope:
+        sync_company_calendar_shoots(scope, actor.user_id)
+        promote_due_calendar_shoots_to_sprint(scope, actor.user_id)
+
     return jsonify(
         {"message": "events found", "results": calendar_events_schema.dump(query.all())}
     ), 200
@@ -163,6 +172,8 @@ def calendar_event_add(req: Request, auth_info) -> Response:
         return error
 
     db.session.add(event)
+    db.session.flush()
+    sync_calendar_event_to_task(event, actor.user_id)
     db.session.commit()
     generate_calendar_reminders(company_id)
     return jsonify(
@@ -224,6 +235,7 @@ def calendar_event_update(req: Request, event_id, auth_info) -> Response:
 
     event.title = _build_title(event.school, event.event_type, event.title)
 
+    sync_calendar_event_to_task(event, actor.user_id)
     db.session.commit()
     return jsonify(
         {"message": "event updated", "results": calendar_event_schema.dump(event)}
@@ -309,6 +321,9 @@ def calendar_sync_numbers(req: Request, auth_info) -> Response:
         )
         db.session.add(event)
         created.append(event)
+
+    for event in created:
+        sync_calendar_event_to_task(event, actor.user_id)
 
     db.session.commit()
     generate_calendar_reminders(company_id)

@@ -85,6 +85,11 @@ def tasks_backlog_get(req: Request, auth_info) -> Response:
         return jsonify({"message": "Unauthorized"}), 401
 
     scope = resolve_scope_company_id(req, actor)
+    if scope:
+        from util.white_raven_calendar_sync import promote_due_calendar_shoots_to_sprint
+
+        promote_due_calendar_shoots_to_sprint(scope, actor.user_id)
+
     backlog_names = _backlog_status_names(scope)
 
     query = (
@@ -135,6 +140,18 @@ def tasks_my_get(req: Request, auth_info) -> Response:
     if not actor:
         return jsonify({"message": "Unauthorized"}), 401
 
+    scope = resolve_scope_company_id(req, actor)
+    require_sprint = False
+    if scope:
+        from util.white_raven_calendar_sync import (
+            my_tasks_require_sprint,
+            promote_due_calendar_shoots_to_sprint,
+        )
+
+        require_sprint = my_tasks_require_sprint(scope)
+        if require_sprint:
+            promote_due_calendar_shoots_to_sprint(scope, actor.user_id)
+
     query = (
         db.session.query(Task)
         .options(joinedload(Task.sprints))
@@ -142,7 +159,8 @@ def tasks_my_get(req: Request, auth_info) -> Response:
         .filter(Task.assignees.any(AppUser.user_id == actor.user_id))
         .order_by(Task.created_at.desc())
     )
-    scope = resolve_scope_company_id(req, actor)
+    if require_sprint:
+        query = query.filter(Task.sprints.any())
     query = company_scope_filter(query, Task, actor, scope)
     return jsonify(
         {"message": "my tasks found", "results": _serialize_task_list(query.all())}
@@ -257,7 +275,11 @@ def task_update(req: Request, task_id, auth_info) -> Response:
 
     task = (
         db.session.query(Task)
-        .options(joinedload(Task.assignees), joinedload(Task.sprints))
+        .options(
+            joinedload(Task.assignees),
+            joinedload(Task.sprints),
+            joinedload(Task.status),
+        )
         .filter(Task.task_id == task_id)
         .first()
     )
@@ -292,6 +314,16 @@ def task_update(req: Request, task_id, auth_info) -> Response:
 
     if "task_id" in payload:
         return jsonify({"message": "update not allowed"}), 405
+
+    if "task_status_id" in payload:
+        from util.company_workflow import validate_mark_done_transition
+
+        current_name = task.status.name if task.status else None
+        status_error = validate_mark_done_transition(
+            task.company_id, current_name, payload["task_status_id"]
+        )
+        if status_error:
+            return jsonify({"message": status_error}), 400
 
     error = populate_object(task, payload)
     if error:

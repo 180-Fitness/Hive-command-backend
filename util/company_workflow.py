@@ -58,6 +58,37 @@ def done_status_names(company_id=None):
     return config.project_board_views.get("done", ["Done"])
 
 
+def mark_done_requires_status(company_id):
+    company = company_by_id(company_id)
+    views = project_board_views_for_company(company)
+    return views.get("mark_done_requires_status")
+
+
+def validate_mark_done_transition(company_id, current_status_name, new_status_id):
+    """Return an error message if a done transition is not allowed."""
+    required = mark_done_requires_status(company_id)
+    if not required:
+        return None
+
+    new_status = (
+        db.session.query(TaskStatus)
+        .filter(TaskStatus.task_status_id == new_status_id)
+        .filter(TaskStatus.company_id == company_id)
+        .first()
+    )
+    if not new_status:
+        return None
+
+    done_names = set(done_status_names(company_id))
+    if new_status.name not in done_names:
+        return None
+
+    if (current_status_name or "").strip() != required:
+        return f'Task must be in "{required}" before it can be marked done'
+
+    return None
+
+
 def sync_company_task_statuses(company):
     """Apply configured workflow statuses for companies with custom definitions."""
     defs = config.company_task_statuses.get(company.name)
@@ -69,6 +100,16 @@ def sync_company_task_statuses(company):
     )
     existing_by_name = {status.name: status for status in existing}
     desired_names = {defn["name"] for defn in defs}
+
+    for old_name, new_name in config.company_task_status_renames.get(
+        company.name, {}
+    ).items():
+        if old_name in existing_by_name and new_name not in existing_by_name:
+            status = existing_by_name.pop(old_name)
+            status.name = new_name
+            existing_by_name[new_name] = status
+
+    db.session.flush()
 
     default_status = None
     for index, defn in enumerate(defs):
