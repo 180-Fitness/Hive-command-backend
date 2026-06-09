@@ -26,6 +26,7 @@ class Task(db.Model):
     name = db.Column(db.String(), nullable=False)
     description = db.Column(db.String(), nullable=False, default="")
     points_estimate = db.Column(db.Float(), nullable=True)
+    due_date = db.Column(db.Date(), nullable=True)
     created_by_id = db.Column(UUID(as_uuid=True), db.ForeignKey("app_users.user_id"), nullable=False)
     active = db.Column(db.Boolean(), nullable=False, default=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
@@ -55,6 +56,7 @@ class Task(db.Model):
         description="",
         project_id=None,
         points_estimate=None,
+        due_date=None,
         active=True,
     ):
         self.company_id = company_id
@@ -64,6 +66,7 @@ class Task(db.Model):
         self.description = description
         self.project_id = project_id
         self.points_estimate = points_estimate
+        self.due_date = due_date
         self.active = active
 
 
@@ -75,6 +78,7 @@ _LIST_FIELDS = (
     "name",
     "description",
     "points_estimate",
+    "due_date",
     "created_by_id",
     "active",
     "created_at",

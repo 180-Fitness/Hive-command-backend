@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from flask import Request, Response, jsonify
 from sqlalchemy.orm import joinedload
 
@@ -20,8 +22,23 @@ from util.reflection import populate_object
 from util.validate_uuid4 import validate_uuid4
 
 
-def _backlog_status_names():
+def _backlog_status_names(company_id=None):
+    from util.company_workflow import backlog_status_names
+
+    if company_id:
+        return backlog_status_names(company_id)
     return config.project_board_views.get("backlog", ["Backlog", "Ready"])
+
+
+def _parse_due_date(value):
+    if value is None or value == "":
+        return None
+    if hasattr(value, "isoformat"):
+        return value
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return "invalid"
 
 
 def _return_task_to_backlog_pool(task):
@@ -31,7 +48,7 @@ def _return_task_to_backlog_pool(task):
         .filter(TaskStatus.task_status_id == task.task_status_id)
         .first()
     )
-    if status and status.name in _backlog_status_names():
+    if status and status.name in _backlog_status_names(task.company_id):
         task.sprints.clear()
 
 
@@ -67,7 +84,8 @@ def tasks_backlog_get(req: Request, auth_info) -> Response:
     if not actor:
         return jsonify({"message": "Unauthorized"}), 401
 
-    backlog_names = _backlog_status_names()
+    scope = resolve_scope_company_id(req, actor)
+    backlog_names = _backlog_status_names(scope)
 
     query = (
         db.session.query(Task)
@@ -82,7 +100,6 @@ def tasks_backlog_get(req: Request, auth_info) -> Response:
         .filter(TaskStatus.name.in_(backlog_names))
         .order_by(Task.created_at.desc())
     )
-    scope = resolve_scope_company_id(req, actor)
     query = company_scope_filter(query, Task, actor, scope)
 
     return jsonify(
@@ -145,8 +162,7 @@ def task_get_by_id(req: Request, task_id, auth_info) -> Response:
     if not task:
         return jsonify({"message": "task not found"}), 404
 
-    scope = resolve_scope_company_id(req, actor)
-    if not can_access_company_scoped(actor, task.company_id, scope):
+    if not can_access_company(actor, task.company_id):
         return jsonify({"message": "Forbidden"}), 403
 
     return jsonify({"message": "task found", "results": _serialize_task_detail(task)}), 200
@@ -210,6 +226,10 @@ def task_add(req: Request, auth_info) -> Response:
     if not task_status_id:
         return jsonify({"message": "No workflow statuses configured for this company"}), 400
 
+    due_date = _parse_due_date(payload.get("due_date"))
+    if due_date == "invalid":
+        return jsonify({"message": "Invalid due date"}), 400
+
     task = Task(
         company_id=company_id,
         name=payload.get("name", ""),
@@ -218,6 +238,7 @@ def task_add(req: Request, auth_info) -> Response:
         description=payload.get("description", ""),
         project_id=payload.get("project_id"),
         points_estimate=payload.get("points_estimate"),
+        due_date=due_date,
     )
     db.session.add(task)
     db.session.commit()
@@ -249,6 +270,12 @@ def task_update(req: Request, task_id, auth_info) -> Response:
 
     payload = dict(req.get_json() or {})
     assignee_id = payload.pop("assignee_id", None)
+
+    if "due_date" in payload:
+        due_date = _parse_due_date(payload.pop("due_date"))
+        if due_date == "invalid":
+            return jsonify({"message": "Invalid due date"}), 400
+        task.due_date = due_date
 
     if assignee_id:
         if not validate_uuid4(assignee_id):

@@ -26,6 +26,7 @@ class AppUser(db.Model):
     last_name = db.Column(db.String(), nullable=False)
     email = db.Column(db.String(), nullable=False, unique=True)
     phone = db.Column(db.String(), default="")
+    job_title = db.Column(db.String(), default="")
     password = db.Column(db.String(), nullable=False)
     role = db.Column(db.String(), nullable=False, default="member")
     color = db.Column(db.String(), nullable=False, default="#2563EB")
@@ -53,6 +54,7 @@ class AppUser(db.Model):
         email,
         password,
         phone="",
+        job_title="",
         role="member",
         color="#2563EB",
         active=True,
@@ -64,6 +66,7 @@ class AppUser(db.Model):
         self.email = email
         self.password = password
         self.phone = phone
+        self.job_title = job_title
         self.role = role
         self.color = color
         self.active = active
@@ -82,6 +85,7 @@ class AppUserSchema(ma.Schema):
             "last_name",
             "email",
             "phone",
+            "job_title",
             "role",
             "color",
             "active",

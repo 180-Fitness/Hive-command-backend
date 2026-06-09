@@ -47,6 +47,25 @@ default_task_statuses = [
     "Done",
 ]
 
+# Company-specific workflow statuses (name must match companies.name in hive_group_companies)
+company_task_statuses = {
+    "White Raven": [
+        {"name": "Shoot, Edit - Katie", "color": "#2563EB"},
+        {"name": "Online, Data - Ashli", "color": "#7C3AED"},
+        {"name": "Printing - Martha", "color": "#CA8A04"},
+        {"name": "QC - Ashli", "color": "#16A34A"},
+    ],
+}
+
+company_project_board_views = {
+    "White Raven": {
+        "backlog": ["Shoot, Edit - Katie"],
+        "working": ["Online, Data - Ashli", "Printing - Martha"],
+        "done": ["QC - Ashli"],
+        "sprint_promote_to": "Online, Data - Ashli",
+    },
+}
+
 palette = [
     "#2563EB",
     "#7C3AED",
@@ -64,3 +83,4 @@ project_board_views = {
     "working": ["In Progress", "In Review", "Blocked"],
     "done": ["Done"],
 }
+

@@ -15,10 +15,8 @@ from util.access_control import (
     is_admin,
     resolve_scope_company_id,
 )
+from util.company_workflow import backlog_status_names, sprint_promote_status_name
 from util.validate_uuid4 import validate_uuid4
-
-_BACKLOG_STATUS_NAMES = frozenset({"Backlog", "Ready"})
-_WORKING_STATUS_NAME = "In Progress"
 _SPRINT_METADATA_FIELDS = frozenset({"name", "start_date", "end_date", "active"})
 
 
@@ -72,17 +70,19 @@ def _promote_task_entering_sprint(task):
         .filter(TaskStatus.task_status_id == task.task_status_id)
         .first()
     )
-    if not status or status.name not in _BACKLOG_STATUS_NAMES:
+    backlog_names = set(backlog_status_names(task.company_id))
+    if not status or status.name not in backlog_names:
         return
 
-    in_progress = (
+    promote_name = sprint_promote_status_name(task.company_id)
+    next_status = (
         db.session.query(TaskStatus)
         .filter(TaskStatus.company_id == task.company_id)
-        .filter(TaskStatus.name == _WORKING_STATUS_NAME)
+        .filter(TaskStatus.name == promote_name)
         .first()
     )
-    if in_progress:
-        task.task_status_id = in_progress.task_status_id
+    if next_status:
+        task.task_status_id = next_status.task_status_id
 
 
 def _add_task_to_sprint(sprint, task):

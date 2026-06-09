@@ -9,6 +9,7 @@ from util.access_control import (
     get_actor,
     resolve_scope_company_id,
 )
+from util.company_workflow import company_by_id, project_board_views_for_company
 from util.validate_uuid4 import validate_uuid4
 
 
@@ -28,7 +29,15 @@ def task_statuses_get(req: Request, auth_info) -> Response:
         .order_by(TaskStatus.sort_order.asc())
         .all()
     )
-    return jsonify({"message": "task statuses found", "results": task_statuses_schema.dump(rows)}), 200
+    company = company_by_id(company_id)
+    board_views = project_board_views_for_company(company)
+    return jsonify(
+        {
+            "message": "task statuses found",
+            "results": task_statuses_schema.dump(rows),
+            "board_views": board_views,
+        }
+    ), 200
 
 
 @authenticate_return_auth

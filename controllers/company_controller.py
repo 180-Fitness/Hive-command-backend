@@ -55,11 +55,20 @@ def company_get_by_id(req: Request, company_id, auth_info) -> Response:
 
 @authenticate_return_auth
 def company_add(req: Request, auth_info) -> Response:
-    if not is_enterprise_admin(auth_info.user):
+    actor = get_actor(auth_info)
+    if not actor or not is_enterprise_admin(actor):
         return jsonify({"message": "Only enterprise administrators can add companies"}), 403
 
-    payload = req.get_json() or {}
-    company = Company.blank(auth_info.user.enterprise_id)
+    payload = dict(req.get_json() or {})
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"message": "Company name is required"}), 400
+
+    payload.pop("enterprise_id", None)
+    payload.pop("company_id", None)
+    payload["name"] = name
+
+    company = Company.blank(actor.enterprise_id)
     error = populate_object(company, payload)
     if error:
         return error
@@ -102,7 +111,8 @@ def company_update(req: Request, company_id, auth_info) -> Response:
 
 @authenticate_return_auth
 def company_set_active(req: Request, company_id, auth_info) -> Response:
-    if not is_enterprise_admin(auth_info.user):
+    actor = get_actor(auth_info)
+    if not actor or not is_enterprise_admin(actor):
         return jsonify({"message": "Unauthorized"}), 403
 
     company = db.session.query(Company).filter(Company.company_id == company_id).first()
