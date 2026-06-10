@@ -16,6 +16,11 @@ from models.enterprise import Enterprise
 from models.task_statuses import TaskStatus
 from util.access_control import ENTERPRISE_ADMIN
 from util.blueprints import register_blueprints
+from util.calendar_schema import ensure_calendar_event_columns
+from util.user_schema import ensure_user_columns
+from util.notification_schema import ensure_notification_columns
+from util.task_schema import ensure_task_due_date_column
+from util.order_line_schema import ensure_order_lines_table
 from util.company_seed import ensure_company_task_statuses, seed_hive_group_companies
 from util.user_companies import backfill_user_company_assignments
 
@@ -128,6 +133,11 @@ def seed_bootstrap_data(bcrypt):
 def create_all(bcrypt):
     with app.app_context():
         db.create_all()
+        ensure_user_columns()
+        ensure_calendar_event_columns()
+        ensure_notification_columns()
+        ensure_task_due_date_column()
+        ensure_order_lines_table()
         seed_bootstrap_data(bcrypt)
 
 
@@ -148,7 +158,7 @@ CORS(
     app,
     origins=_cors_origins(),
     supports_credentials=True,
-    allow_headers=["Content-Type", "auth", "X-Company-Id"],
+    allow_headers=["Content-Type", "auth", "dashboard-auth", "X-Company-Id"],
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 Marshmallow(app)
