@@ -28,6 +28,9 @@ class CalendarEvent(db.Model):
     num_stations = db.Column(db.Integer(), nullable=True)
     num_students = db.Column(db.Integer(), nullable=True)
     location = db.Column(db.String(), nullable=False, default="")
+    project_id = db.Column(
+        UUID(as_uuid=True), db.ForeignKey("projects.project_id"), nullable=True
+    )
     source = db.Column(db.String(), nullable=False, default="manual")
     active = db.Column(db.Boolean(), nullable=False, default=True)
     created_by_id = db.Column(UUID(as_uuid=True), db.ForeignKey("app_users.user_id"), nullable=False)
@@ -39,6 +42,7 @@ class CalendarEvent(db.Model):
     )
 
     created_by = db.relationship("AppUser", foreign_keys=[created_by_id])
+    project = db.relationship("Project", foreign_keys=[project_id])
 
     def __init__(
         self,
@@ -52,6 +56,7 @@ class CalendarEvent(db.Model):
         num_stations=None,
         num_students=None,
         location="",
+        project_id=None,
         source="manual",
         active=True,
     ):
@@ -65,6 +70,7 @@ class CalendarEvent(db.Model):
         self.num_stations = num_stations
         self.num_students = num_students
         self.location = location
+        self.project_id = project_id
         self.source = source
         self.active = active
 
@@ -85,6 +91,7 @@ class CalendarEventSchema(ma.Schema):
             "num_stations",
             "num_students",
             "location",
+            "project_id",
             "source",
             "active",
             "created_by_id",

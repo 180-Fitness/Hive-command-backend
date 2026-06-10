@@ -211,6 +211,24 @@ def promote_due_calendar_shoots_to_sprint(company_id, created_by_id=None):
     return promoted
 
 
+def _resolve_project(company, event, created_by_id):
+    if event.project_id:
+        project = (
+            db.session.query(Project)
+            .filter(Project.project_id == event.project_id)
+            .filter(Project.company_id == company.company_id)
+            .filter(Project.active.is_(True))
+            .first()
+        )
+        if project:
+            return project
+
+    school = (event.school or "").strip()
+    if not school:
+        return None
+    return _find_or_create_project(company, school, created_by_id)
+
+
 def sync_calendar_event_to_task(event, created_by_id=None):
     """Create or update a White Raven task for a calendar shoot event."""
     if not event or not event.active:
@@ -222,7 +240,7 @@ def sync_calendar_event_to_task(event, created_by_id=None):
         return None
 
     school = (event.school or "").strip()
-    if not school:
+    if not school and not event.project_id:
         return None
 
     actor_id = created_by_id or event.created_by_id
@@ -231,7 +249,7 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     if not status:
         return None
 
-    project = _find_or_create_project(company, school, actor_id)
+    project = _resolve_project(company, event, actor_id)
     if not project:
         return None
 
@@ -269,6 +287,7 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     db.session.flush()
     _ensure_assignee(task, assignee)
     _sync_sprint_membership(task, actor_id)
+    task.task_status_id = status.task_status_id
     return task
 
 

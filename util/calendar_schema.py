@@ -31,6 +31,11 @@ def ensure_calendar_event_columns():
         statements.append(
             "ALTER TABLE calendar_events ADD COLUMN location VARCHAR DEFAULT ''"
         )
+    if "project_id" not in existing:
+        statements.append(
+            "ALTER TABLE calendar_events ADD COLUMN project_id UUID "
+            "REFERENCES projects(project_id)"
+        )
 
     for statement in statements:
         db.session.execute(text(statement))

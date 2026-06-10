@@ -9,6 +9,7 @@ from models.calendar_events import (
     calendar_event_schema,
     calendar_events_schema,
 )
+from models.projects import Project
 from util.access_control import (
     can_access_company_scoped,
     company_scope_filter,
@@ -55,6 +56,27 @@ def _description_from_location(description, location):
     return description or location
 
 
+def _parse_project_id(payload, company_id, *, required=True):
+    raw = payload.get("project_id")
+    if not raw:
+        if required:
+            return None, (jsonify({"message": "Project is required"}), 400)
+        return None, None
+    if not validate_uuid4(raw):
+        return None, (jsonify({"message": "Invalid project id"}), 400)
+
+    project = (
+        db.session.query(Project)
+        .filter(Project.project_id == raw)
+        .filter(Project.company_id == company_id)
+        .filter(Project.active.is_(True))
+        .first()
+    )
+    if not project:
+        return None, (jsonify({"message": "Project not found"}), 404)
+    return project.project_id, None
+
+
 def _event_from_payload(payload, *, company_id, created_by_id, source="manual"):
     school = (payload.get("school") or "").strip()
     event_type = (payload.get("event_type") or "").strip()
@@ -64,6 +86,12 @@ def _event_from_payload(payload, *, company_id, created_by_id, source="manual"):
         return None, (jsonify({"message": "School is required"}), 400)
     if not event_type and source == "manual":
         return None, (jsonify({"message": "Event type is required"}), 400)
+
+    project_id, project_error = _parse_project_id(
+        payload, company_id, required=source == "manual"
+    )
+    if project_error:
+        return None, project_error
 
     event_date = _parse_event_date(payload)
     if not event_date:
@@ -84,6 +112,7 @@ def _event_from_payload(payload, *, company_id, created_by_id, source="manual"):
         num_stations=_parse_optional_int(payload.get("num_stations")),
         num_students=_parse_optional_int(payload.get("num_students")),
         location=location,
+        project_id=project_id,
         source=source,
     )
     return event, None
@@ -218,6 +247,13 @@ def calendar_event_update(req: Request, event_id, auth_info) -> Response:
         event.num_stations = _parse_optional_int(payload.pop("num_stations"))
     if "num_students" in payload:
         event.num_students = _parse_optional_int(payload.pop("num_students"))
+
+    if "project_id" in payload:
+        project_id, project_error = _parse_project_id(payload, event.company_id)
+        if project_error:
+            return project_error
+        event.project_id = project_id
+        payload.pop("project_id")
 
     payload.pop("source", None)
     error = populate_object(event, payload)

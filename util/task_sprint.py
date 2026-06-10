@@ -5,6 +5,9 @@ from util.company_workflow import backlog_status_names, sprint_promote_status_na
 
 def promote_task_entering_sprint(task):
     """Move workflow status off backlog when work enters a sprint."""
+    if task.calendar_event_id is not None:
+        return
+
     status = (
         db.session.query(TaskStatus)
         .filter(TaskStatus.task_status_id == task.task_status_id)
