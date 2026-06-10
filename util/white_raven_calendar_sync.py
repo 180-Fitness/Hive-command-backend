@@ -1,4 +1,5 @@
-from datetime import date, timedelta
+from datetime import date
+
 from random import choice
 
 import config
@@ -13,6 +14,7 @@ from models.task_statuses import TaskStatus
 from models.tasks import Task
 from util.access_control import can_access_company
 from util.company_workflow import company_by_id
+from util.school_picture_workflow import sync_school_picture_assignee
 from util.weekly_sprints import (
     my_tasks_current_week_only,
     sync_due_tasks_into_current_week_sprint,
@@ -69,6 +71,7 @@ def _find_or_create_project(company, school, created_by_id):
     projects = (
         db.session.query(Project)
         .filter(Project.company_id == company.company_id)
+        .filter(Project.active.is_(True))
         .all()
     )
     for project in projects:
@@ -97,13 +100,6 @@ def _default_task_status(company_id, status_name):
         .filter(TaskStatus.name == status_name)
         .first()
     )
-
-
-def _task_due_date(event, sync_cfg):
-    if not event.event_date:
-        return None
-    offset_days = sync_cfg.get("task_due_date_offset_days", 21)
-    return event.event_date + timedelta(days=offset_days)
 
 
 def task_shoot_date(task):
@@ -141,31 +137,6 @@ def _task_description(event):
 
 def _task_name(event):
     return (event.title or "").strip() or (event.school or "").strip() or "Shoot"
-
-
-def _ensure_assignee(task, assignee):
-    if not assignee:
-        return
-    if assignee not in task.assignees:
-        task.assignees.append(assignee)
-
-
-def apply_school_task_status_assignee(task, status_name):
-    """Tag the configured owner when a school picture task enters a workflow stage."""
-    if not task or task.calendar_event_id is None:
-        return
-
-    company = company_by_id(task.company_id)
-    if not company:
-        return
-
-    assignee_cfg = config.company_school_task_status_assignees.get(company.name, {}).get(
-        status_name
-    )
-    if not assignee_cfg:
-        return
-
-    _ensure_assignee(task, _find_assignee(task.company_id, assignee_cfg))
 
 
 def my_tasks_require_sprint(company_id):
@@ -215,7 +186,7 @@ def sync_calendar_event_to_task(event, created_by_id=None):
         return None
 
     actor_id = created_by_id or event.created_by_id
-    status_name = sync_cfg.get("task_status", "Shoot, Edit")
+    status_name = sync_cfg.get("task_status", config.SCHOOL_PICTURE_STAGE_PICTURES)
     status = _default_task_status(event.company_id, status_name)
     if not status:
         return None
@@ -224,14 +195,14 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     if not project:
         return None
 
-    assignee = _find_assignee(event.company_id, sync_cfg.get("assignee", {}))
     task_name = _task_name(event)
     description = _task_description(event)
-    due_date = _task_due_date(event, sync_cfg)
+    due_date = event.event_date
 
     task = (
         db.session.query(Task)
         .filter(Task.calendar_event_id == event.calendar_event_id)
+        .filter(Task.active.is_(True))
         .first()
     )
 
@@ -242,8 +213,8 @@ def sync_calendar_event_to_task(event, created_by_id=None):
         task.description = description
         task.due_date = due_date
         task.project_id = project.project_id
-        _ensure_assignee(task, assignee)
         _sync_sprint_membership(task, actor_id)
+        sync_school_picture_assignee(task, company)
         return task
 
     task = Task(
@@ -258,9 +229,8 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     task.calendar_event_id = event.calendar_event_id
     db.session.add(task)
     db.session.flush()
-    _ensure_assignee(task, assignee)
     _sync_sprint_membership(task, actor_id)
-    task.task_status_id = status.task_status_id
+    sync_school_picture_assignee(task, company)
     return task
 
 
@@ -330,6 +300,7 @@ def sync_company_calendar_shoots(company_id, created_by_id=None):
         for row in db.session.query(Task.calendar_event_id)
         .filter(Task.company_id == company_id)
         .filter(Task.calendar_event_id.isnot(None))
+        .filter(Task.active.is_(True))
         .all()
     }
 

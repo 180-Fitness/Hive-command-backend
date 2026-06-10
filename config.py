@@ -47,42 +47,49 @@ default_task_statuses = [
     "Done",
 ]
 
+# White Raven school-picture pipeline (calendar-linked tasks only)
+SCHOOL_PICTURE_STAGE_PICTURES = "Pictures Taken and Edit"
+SCHOOL_PICTURE_STAGE_ONLINE = "Online, Data"
+SCHOOL_PICTURE_STAGE_PRINT = "Print"
+SCHOOL_PICTURE_STAGE_QC = "QC"
+SCHOOL_PICTURE_STAGE_DONE = "Done"
+
+school_picture_pipeline = {
+    "White Raven": {
+        "finalize_deadline_weeks": 3,
+        "stages": [
+            {"name": SCHOOL_PICTURE_STAGE_PICTURES, "color": "#2563EB"},
+            {"name": SCHOOL_PICTURE_STAGE_ONLINE, "color": "#7C3AED"},
+            {"name": SCHOOL_PICTURE_STAGE_PRINT, "color": "#CA8A04"},
+            {"name": SCHOOL_PICTURE_STAGE_QC, "color": "#16A34A"},
+            {"name": SCHOOL_PICTURE_STAGE_DONE, "color": "#0891B2"},
+        ],
+    },
+}
+
 # Company-specific workflow statuses (name must match companies.name in hive_group_companies)
 company_task_statuses = {
-    "White Raven": [
-        {"name": "Shoot, Edit", "color": "#2563EB"},
-        {"name": "Online, Data", "color": "#7C3AED"},
-        {"name": "Printing", "color": "#CA8A04"},
-        {"name": "QC", "color": "#16A34A"},
-        {"name": "Done", "color": "#0891B2"},
-    ],
+    "White Raven": school_picture_pipeline["White Raven"]["stages"],
 }
 
 company_task_status_renames = {
     "White Raven": {
-        "Shoot, Edit - Katie": "Shoot, Edit",
-        "Online, Data - Ashli": "Online, Data",
-        "Printing - Martha": "Printing",
-        "QC - Ashli": "QC",
-    },
-}
-
-# Auto-assign school picture tasks when moved into a workflow stage
-company_school_task_status_assignees = {
-    "White Raven": {
-        "Online, Data": {"first_name": "Ashli", "last_name": "Broadhead"},
-        "Printing": {"first_name": "Martha", "last_name": "Whitman"},
-        "QC": {"first_name": "Ashli", "last_name": "Broadhead"},
+        "Shoot, Edit - Katie": SCHOOL_PICTURE_STAGE_PICTURES,
+        "Shoot, Edit": SCHOOL_PICTURE_STAGE_PICTURES,
+        "Online, Data - Ashli": SCHOOL_PICTURE_STAGE_ONLINE,
+        "Printing - Martha": SCHOOL_PICTURE_STAGE_PRINT,
+        "Printing": SCHOOL_PICTURE_STAGE_PRINT,
+        "QC - Ashli": SCHOOL_PICTURE_STAGE_QC,
     },
 }
 
 company_project_board_views = {
     "White Raven": {
-        "backlog": ["Shoot, Edit"],
-        "working": ["Online, Data", "Printing", "QC"],
-        "done": ["Done"],
-        "sprint_promote_to": "Online, Data",
-        "mark_done_requires_status": "QC",
+        "backlog": [SCHOOL_PICTURE_STAGE_PICTURES],
+        "working": [SCHOOL_PICTURE_STAGE_ONLINE, SCHOOL_PICTURE_STAGE_PRINT, SCHOOL_PICTURE_STAGE_QC],
+        "done": [SCHOOL_PICTURE_STAGE_DONE],
+        "sprint_promote_to": SCHOOL_PICTURE_STAGE_ONLINE,
+        "mark_done_requires_status": SCHOOL_PICTURE_STAGE_QC,
     },
 }
 
@@ -92,11 +99,18 @@ company_calendar_task_sync = {
         "shoot_event_types": ["Fall Picture Day", "Retake Fall Picture Day"],
         "shoot_keyword": "shoot",
         "assignee": {"first_name": "Katie", "last_name": "Gleave"},
-        "task_status": "Shoot, Edit",
+        "stage_assignees": {
+            SCHOOL_PICTURE_STAGE_PICTURES: {"first_name": "Katie", "last_name": "Gleave"},
+            SCHOOL_PICTURE_STAGE_ONLINE: {"first_name": "Ashli", "last_name": "Broadhead"},
+            SCHOOL_PICTURE_STAGE_PRINT: {"first_name": "Martha", "last_name": "Whitman"},
+            SCHOOL_PICTURE_STAGE_QC: {"first_name": "Ashli", "last_name": "Broadhead"},
+        },
+        "task_status": SCHOOL_PICTURE_STAGE_PICTURES,
+        "finalize_deadline_weeks": 3,
         "my_tasks_current_week_only": True,
+        "my_tasks_require_sprint": True,
         "sprint_duration_days": 7,
         "backlog_until_picture_day": True,
-        "task_due_date_offset_days": 21,
     },
 }
 
@@ -128,3 +142,25 @@ project_board_views = {
     "done": ["Done"],
 }
 
+# Proof Pix order CSV import (EventName -> shoot task under school project)
+proofpix_order_sync = {
+    "White Raven": {
+        "strip_trailing_year": True,
+        "create_tasks_on_import": True,
+        "new_task_status": SCHOOL_PICTURE_STAGE_PRINT,
+        # Exact Proof Pix EventName -> Hive Command task.name (when auto-match fails).
+        # Examples that usually auto-match without aliases:
+        #   "Gunnison Valley High School Cap&Gown 2026" -> task "Cap&Gown 2026"
+        #   "Gunnison Valley High Fall Sports" -> task "Fall Sports"
+        "event_aliases": {
+            "Gunnison Valley High": "Fall Picture Day",
+        },
+    },
+}
+
+# Daily inbox import: drop Proof Pix CSV exports here (see PROOFPIX_INBOX_PATH in .env)
+proofpix_inbox = {
+    "company_name": "White Raven",
+    "path": "~/Desktop/ProofPix-Inbox",
+    "schedule_hour": 7,
+}

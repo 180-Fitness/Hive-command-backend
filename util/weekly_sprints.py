@@ -224,7 +224,7 @@ def sync_task_weekly_sprint_membership(task, created_by_id=None):
 
     if sprint_date > week_end:
         task.sprints.clear()
-        status_name = sync_cfg.get("task_status", "Shoot, Edit")
+        status_name = sync_cfg.get("task_status", config.SCHOOL_PICTURE_STAGE_PICTURES)
         backlog_status = (
             db.session.query(TaskStatus)
             .filter(TaskStatus.company_id == task.company_id)
