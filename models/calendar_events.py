@@ -6,9 +6,28 @@ from sqlalchemy.dialects.postgresql import UUID
 
 from db import db
 
+SPRING_PICTURE_DAY = "Spring Picture Day"
 FALL_PICTURE_DAY = "Fall Picture Day"
+RETAKE_PICTURE_DAY = "Retake"
+GRADUATION = "Graduation"
+ROOFTOP = "Rooftop"
+SPORTS = "Sports"
+SENIOR_PICTURES = "Senior Pictures"
+
+# Legacy label still stored on some synced events
 RETAKE_FALL_PICTURE_DAY = "Retake Fall Picture Day"
-PICTURE_DAY_TYPES = (FALL_PICTURE_DAY, RETAKE_FALL_PICTURE_DAY)
+
+PICTURE_DAY_TYPES = (
+    SPRING_PICTURE_DAY,
+    FALL_PICTURE_DAY,
+    RETAKE_PICTURE_DAY,
+    GRADUATION,
+    ROOFTOP,
+    SPORTS,
+    SENIOR_PICTURES,
+)
+
+SHOOT_EVENT_TYPES = PICTURE_DAY_TYPES + (RETAKE_FALL_PICTURE_DAY,)
 
 
 class CalendarEvent(db.Model):
@@ -28,6 +47,12 @@ class CalendarEvent(db.Model):
     num_stations = db.Column(db.Integer(), nullable=True)
     num_students = db.Column(db.Integer(), nullable=True)
     location = db.Column(db.String(), nullable=False, default="")
+    # sh/shoot-day-sms-reminders
+    # contact_phone = db.Column(db.String(), nullable=False, default="")
+    # shoot_reminder_sms_sent_at = db.Column(db.DateTime, nullable=True)
+    project_id = db.Column(
+        UUID(as_uuid=True), db.ForeignKey("projects.project_id"), nullable=True
+    )
     source = db.Column(db.String(), nullable=False, default="manual")
     active = db.Column(db.Boolean(), nullable=False, default=True)
     created_by_id = db.Column(UUID(as_uuid=True), db.ForeignKey("app_users.user_id"), nullable=False)
@@ -39,6 +64,7 @@ class CalendarEvent(db.Model):
     )
 
     created_by = db.relationship("AppUser", foreign_keys=[created_by_id])
+    project = db.relationship("Project", foreign_keys=[project_id])
 
     def __init__(
         self,
@@ -52,6 +78,7 @@ class CalendarEvent(db.Model):
         num_stations=None,
         num_students=None,
         location="",
+        project_id=None,
         source="manual",
         active=True,
     ):
@@ -65,6 +92,7 @@ class CalendarEvent(db.Model):
         self.num_stations = num_stations
         self.num_students = num_students
         self.location = location
+        self.project_id = project_id
         self.source = source
         self.active = active
 
@@ -85,6 +113,7 @@ class CalendarEventSchema(ma.Schema):
             "num_stations",
             "num_students",
             "location",
+            "project_id",
             "source",
             "active",
             "created_by_id",

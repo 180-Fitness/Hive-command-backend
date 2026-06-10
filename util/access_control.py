@@ -197,6 +197,31 @@ def actor_can_assign_companies(actor, company_ids):
     return all(str(company_id) in allowed for company_id in company_ids)
 
 
+def company_admin_scope_company_id(actor, req):
+    """Active company a company-admin may manage users for."""
+    if is_enterprise_admin(actor) or actor.role != COMPANY_ADMIN:
+        return None
+
+    scope = resolve_scope_company_id(req, actor)
+    if scope:
+        return scope
+
+    allowed = get_user_company_ids(actor)
+    return next(iter(allowed), None)
+
+
+def enforce_company_admin_company_ids(actor, req, company_ids):
+    """Company admins may only assign users to their active company."""
+    scope = company_admin_scope_company_id(actor, req)
+    if not scope:
+        return company_ids
+
+    if company_ids and not all(str(company_id) == str(scope) for company_id in company_ids):
+        return None
+
+    return [scope]
+
+
 def get_actor(auth_info):
     """Load the authenticated AppUser from an auth token record."""
     from sqlalchemy.orm import joinedload

@@ -21,9 +21,9 @@ def register_blueprints(app):
     app.register_blueprint(routes.docker)
     app.register_blueprint(routes.guides)
     app.register_blueprint(routes.calendar)
+    # app.register_blueprint(routes.cron)  # sh/shoot-day-sms-reminders
     app.register_blueprint(routes.dashboard)
     app.register_blueprint(routes.reports)
-    app.register_blueprint(routes.order_lines)
     app.register_blueprint(routes.custom_fields)
     app.register_blueprint(routes.custom_field_options)
     app.register_blueprint(routes.custom_field_values)

@@ -12,7 +12,7 @@ def ensure_company_task_statuses(company_id):
     if not company:
         return
 
-    if company.name in config.company_task_statuses:
+    if company.name in config.company_task_statuses or company.name in config.company_regular_task_statuses:
         sync_company_task_statuses(company)
         return
 

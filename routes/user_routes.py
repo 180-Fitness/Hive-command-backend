@@ -10,6 +10,16 @@ def users_get_all():
     return controllers.users_get_all(request)
 
 
+@app_users.route("/users/all", methods=["GET"])
+def users_get_all_enterprise():
+    return controllers.users_get_all_enterprise(request)
+
+
+@app_users.route("/users/workload", methods=["GET"])
+def users_workload_get():
+    return controllers.users_workload_get(request)
+
+
 @app_users.route("/users/assignees", methods=["GET"])
 def users_assignees_get():
     return controllers.users_assignees_get(request)

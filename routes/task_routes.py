@@ -15,6 +15,11 @@ def tasks_my_get():
     return controllers.tasks_my_get(request)
 
 
+@tasks.route("/tasks/school-pictures", methods=["GET"])
+def tasks_school_pictures_get():
+    return controllers.tasks_school_pictures_get(request)
+
+
 @tasks.route("/tasks", methods=["GET"])
 def tasks_get():
     return controllers.tasks_get(request)
@@ -33,3 +38,8 @@ def task_add():
 @tasks.route("/task/<task_id>", methods=["PUT"])
 def task_update(task_id):
     return controllers.task_update(request, task_id)
+
+
+@tasks.route("/task/<task_id>", methods=["DELETE"])
+def task_delete(task_id):
+    return controllers.task_delete(request, task_id)

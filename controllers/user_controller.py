@@ -16,16 +16,20 @@ from util.access_control import (
     can_access_company,
     can_assign_role,
     can_manage_user,
+    company_admin_scope_company_id,
     company_scope_filter,
     effective_company_id,
+    enforce_company_admin_company_ids,
     is_admin,
     is_enterprise_admin,
     is_member,
     manageable_users_filter,
     resolve_scope_company_id,
 )
+from models.tasks import Task
 from util.phone import normalize_phone
 from util.reflection import populate_object
+from util.task_workload import build_user_workloads
 from util.user_companies import normalize_company_ids, set_user_company_assignments
 from util.validate_password import validate_password
 from util.validate_uuid4 import validate_uuid4
@@ -68,7 +72,64 @@ def users_get_all(req: Request, auth_info) -> Response:
         .order_by(AppUser.last_name.asc(), AppUser.first_name.asc())
     )
     query = manageable_users_filter(query, actor)
+    scope = resolve_scope_company_id(req, actor)
+    if scope or company_admin_scope_company_id(actor, req):
+        query = company_scope_filter(query, AppUser, actor, scope)
     return jsonify({"message": "users found", "results": users_schema.dump(query.all())}), 200
+
+
+@authenticate_return_auth
+def users_get_all_enterprise(req: Request, auth_info) -> Response:
+    actor = _actor(auth_info)
+    if not is_enterprise_admin(actor):
+        return _forbidden()
+
+    query = (
+        db.session.query(AppUser)
+        .options(joinedload(AppUser.assigned_companies))
+        .filter(AppUser.enterprise_id == actor.enterprise_id)
+        .order_by(AppUser.last_name.asc(), AppUser.first_name.asc())
+    )
+    return jsonify({"message": "users found", "results": users_schema.dump(query.all())}), 200
+
+
+@authenticate_return_auth
+def users_workload_get(req: Request, auth_info) -> Response:
+    actor = _actor(auth_info)
+    if not is_admin(actor):
+        return _forbidden()
+
+    user_query = (
+        db.session.query(AppUser)
+        .options(joinedload(AppUser.assigned_companies))
+        .filter(AppUser.active.is_(True))
+        .order_by(AppUser.last_name.asc(), AppUser.first_name.asc())
+    )
+    user_query = manageable_users_filter(user_query, actor)
+    scope = resolve_scope_company_id(req, actor)
+    if scope or company_admin_scope_company_id(actor, req):
+        user_query = company_scope_filter(user_query, AppUser, actor, scope)
+    users = user_query.all()
+
+    task_query = (
+        db.session.query(Task)
+        .options(
+            joinedload(Task.status),
+            joinedload(Task.sprints),
+            joinedload(Task.assignees),
+        )
+        .filter(Task.active.is_(True))
+        .filter(Task.assignees.any())
+    )
+    task_query = company_scope_filter(task_query, Task, actor, scope)
+    tasks = task_query.all()
+
+    return jsonify(
+        {
+            "message": "user workload found",
+            "results": build_user_workloads(users, tasks),
+        }
+    ), 200
 
 
 @authenticate_return_auth
@@ -150,9 +211,12 @@ def user_add(req: Request, auth_info) -> Response:
     email = (payload.get("email") or "").strip().lower()
     first_name = (payload.get("first_name") or "").strip()
     last_name = (payload.get("last_name") or "").strip()
+    job_title = (payload.get("job_title") or "").strip()
 
-    if not email or not first_name or not last_name:
-        return jsonify({"message": "First name, last name, and email are required"}), 400
+    if not email or not first_name or not last_name or not job_title:
+        return jsonify(
+            {"message": "First name, last name, job title, and email are required"}
+        ), 400
 
     if not validate_password(password):
         return jsonify({"message": "Password does not meet requirements"}), 400
@@ -161,6 +225,9 @@ def user_add(req: Request, auth_info) -> Response:
         return jsonify({"message": "A user with that email already exists"}), 409
 
     company_ids = _parse_company_ids(payload, actor, req)
+    company_ids = enforce_company_admin_company_ids(actor, req, company_ids)
+    if company_ids is None:
+        return jsonify({"message": "Company admins can only add users to their company"}), 403
     if not company_ids:
         return jsonify({"message": "At least one company is required"}), 400
 
@@ -179,6 +246,7 @@ def user_add(req: Request, auth_info) -> Response:
         email=email,
         password=generate_password_hash(password).decode("utf-8"),
         phone=normalize_phone(payload.get("phone", "")),
+        job_title=job_title,
         role=role,
         color=payload.get("color", "#2563EB"),
     )
@@ -234,6 +302,9 @@ def user_update(req: Request, user_id, auth_info) -> Response:
             payload.pop("company_ids", None)
         else:
             company_ids = normalize_company_ids(payload.pop("company_ids") or [])
+            company_ids = enforce_company_admin_company_ids(actor, req, company_ids)
+            if company_ids is None:
+                return jsonify({"message": "Company admins can only assign users to their company"}), 403
             if not company_ids:
                 return jsonify({"message": "At least one company is required"}), 400
             if not actor_can_assign_companies(actor, company_ids):
@@ -263,6 +334,9 @@ def user_update(req: Request, user_id, auth_info) -> Response:
 
     if "phone" in payload:
         user.phone = normalize_phone(user.phone)
+
+    if "job_title" in payload:
+        user.job_title = (user.job_title or "").strip()
 
     if company_ids is not None and not set_user_company_assignments(user, company_ids):
         return jsonify({"message": "Invalid company selection"}), 400

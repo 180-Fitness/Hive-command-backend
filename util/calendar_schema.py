@@ -31,6 +31,20 @@ def ensure_calendar_event_columns():
         statements.append(
             "ALTER TABLE calendar_events ADD COLUMN location VARCHAR DEFAULT ''"
         )
+    # sh/shoot-day-sms-reminders
+    # if "contact_phone" not in existing:
+    #     statements.append(
+    #         "ALTER TABLE calendar_events ADD COLUMN contact_phone VARCHAR DEFAULT ''"
+    #     )
+    # if "shoot_reminder_sms_sent_at" not in existing:
+    #     statements.append(
+    #         "ALTER TABLE calendar_events ADD COLUMN shoot_reminder_sms_sent_at TIMESTAMP"
+    #     )
+    if "project_id" not in existing:
+        statements.append(
+            "ALTER TABLE calendar_events ADD COLUMN project_id UUID "
+            "REFERENCES projects(project_id)"
+        )
 
     for statement in statements:
         db.session.execute(text(statement))

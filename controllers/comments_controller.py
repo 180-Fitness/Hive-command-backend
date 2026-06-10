@@ -6,6 +6,7 @@ from models.comments import Comment, comment_detail_schema, comments_detail_sche
 from models.tasks import Task
 from util.access_control import can_access_company
 from util.reflection import populate_object
+from util.task_comment_notifications import notify_task_assignees_of_comment
 from util.validate_uuid4 import validate_uuid4
 
 
@@ -79,6 +80,7 @@ def comment_add(req: Request, auth_info) -> Response:
         body=body,
     )
     db.session.add(comment)
+    notify_task_assignees_of_comment(task, comment, auth_info.user)
     db.session.commit()
 
     return (

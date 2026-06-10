@@ -15,10 +15,8 @@ from util.access_control import (
     is_admin,
     resolve_scope_company_id,
 )
+from util.task_sprint import add_task_to_sprint, clear_sprint_tasks, remove_task_from_sprint, sprint_has_task
 from util.validate_uuid4 import validate_uuid4
-
-_BACKLOG_STATUS_NAMES = frozenset({"Backlog", "Ready"})
-_WORKING_STATUS_NAME = "In Progress"
 _SPRINT_METADATA_FIELDS = frozenset({"name", "start_date", "end_date", "active"})
 
 
@@ -34,7 +32,7 @@ def _sprint_deadline_has_passed(sprint):
 
 def _archive_sprint(sprint):
     sprint.active = False
-    sprint.tasks.clear()
+    clear_sprint_tasks(sprint)
 
 
 def _archive_expired_sprints(actor, scope_company_id=None):
@@ -65,37 +63,6 @@ def _sprint_with_tasks(sprint):
     return data
 
 
-def _promote_task_entering_sprint(task):
-    """Move workflow status off backlog when work enters a sprint."""
-    status = (
-        db.session.query(TaskStatus)
-        .filter(TaskStatus.task_status_id == task.task_status_id)
-        .first()
-    )
-    if not status or status.name not in _BACKLOG_STATUS_NAMES:
-        return
-
-    in_progress = (
-        db.session.query(TaskStatus)
-        .filter(TaskStatus.company_id == task.company_id)
-        .filter(TaskStatus.name == _WORKING_STATUS_NAME)
-        .first()
-    )
-    if in_progress:
-        task.task_status_id = in_progress.task_status_id
-
-
-def _add_task_to_sprint(sprint, task):
-    if task not in sprint.tasks:
-        sprint.tasks.append(task)
-        _promote_task_entering_sprint(task)
-
-
-def _remove_task_from_sprint(sprint, task):
-    if task in sprint.tasks:
-        sprint.tasks.remove(task)
-
-
 @authenticate_return_auth
 def sprints_get(req: Request, auth_info) -> Response:
     actor = get_actor(auth_info)
@@ -103,6 +70,17 @@ def sprints_get(req: Request, auth_info) -> Response:
         return jsonify({"message": "Unauthorized"}), 401
 
     scope = resolve_scope_company_id(req, actor)
+    if scope:
+        from util.weekly_sprints import (
+            ensure_weekly_sprint_rollover,
+            sync_due_tasks_into_current_week_sprint,
+            uses_weekly_sprints,
+        )
+
+        if uses_weekly_sprints(scope):
+            ensure_weekly_sprint_rollover(scope, actor.user_id)
+            sync_due_tasks_into_current_week_sprint(scope, actor.user_id)
+
     _archive_expired_sprints(actor, scope)
 
     query = (
@@ -134,6 +112,15 @@ def sprint_get_by_id(req: Request, sprint_id, auth_info) -> Response:
     scope = resolve_scope_company_id(req, actor)
     if not can_access_company_scoped(actor, sprint.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
+
+    if scope:
+        from util.weekly_sprints import (
+            ensure_weekly_sprint_rollover,
+            uses_weekly_sprints,
+        )
+
+        if uses_weekly_sprints(scope):
+            ensure_weekly_sprint_rollover(scope, actor.user_id)
 
     if not sprint.active:
         return jsonify({"message": "This sprint has been archived"}), 404
@@ -203,10 +190,10 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
         task = db.session.query(Task).filter(Task.task_id == task_id).first()
         if task and can_access_company_scoped(actor, task.company_id, scope):
             if str(task.company_id) == str(sprint.company_id):
-                if task in sprint.tasks:
-                    _remove_task_from_sprint(sprint, task)
+                if sprint_has_task(sprint, task):
+                    remove_task_from_sprint(sprint, task)
                 else:
-                    _add_task_to_sprint(sprint, task)
+                    add_task_to_sprint(sprint, task)
 
     task_ids = payload.get("task_ids")
     if task_ids and isinstance(task_ids, list):
@@ -222,9 +209,9 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
             if str(task.company_id) != str(sprint.company_id):
                 continue
             if payload.get("action") == "remove":
-                _remove_task_from_sprint(sprint, task)
+                remove_task_from_sprint(sprint, task)
             else:
-                _add_task_to_sprint(sprint, task)
+                add_task_to_sprint(sprint, task)
 
     for field in metadata_updates:
         setattr(sprint, field, payload[field])
@@ -250,7 +237,7 @@ def sprint_delete(req: Request, sprint_id, auth_info) -> Response:
     if not can_access_company_scoped(actor, sprint.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
-    sprint.tasks.clear()
+    clear_sprint_tasks(sprint)
     db.session.delete(sprint)
     db.session.commit()
     return jsonify({"message": "sprint deleted"}), 200

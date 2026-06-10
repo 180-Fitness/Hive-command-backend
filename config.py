@@ -48,6 +48,7 @@ default_task_statuses = [
 ]
 
 # White Raven school-picture pipeline (calendar-linked tasks only)
+SCHOOL_PICTURE_STAGE_UPCOMING = "Upcoming"
 SCHOOL_PICTURE_STAGE_PICTURES = "Pictures Taken and Edit"
 SCHOOL_PICTURE_STAGE_ONLINE = "Online, Data"
 SCHOOL_PICTURE_STAGE_PRINT = "Print"
@@ -58,6 +59,7 @@ school_picture_pipeline = {
     "White Raven": {
         "finalize_deadline_weeks": 3,
         "stages": [
+            {"name": SCHOOL_PICTURE_STAGE_UPCOMING, "color": "#64748B"},
             {"name": SCHOOL_PICTURE_STAGE_PICTURES, "color": "#2563EB"},
             {"name": SCHOOL_PICTURE_STAGE_ONLINE, "color": "#7C3AED"},
             {"name": SCHOOL_PICTURE_STAGE_PRINT, "color": "#CA8A04"},
@@ -70,6 +72,25 @@ school_picture_pipeline = {
 # Company-specific workflow statuses (name must match companies.name in hive_group_companies)
 company_task_statuses = {
     "White Raven": school_picture_pipeline["White Raven"]["stages"],
+}
+
+# Non-calendar editing pipeline (regular tasks — not school picture shoots)
+REGULAR_TASK_STAGE_FILTER = "Filter"
+REGULAR_TASK_STAGE_CROP = "Crop"
+REGULAR_TASK_STAGE_CUTOUT = "Cutout"
+REGULAR_TASK_STAGE_BACKGROUNDS = "Backgrounds"
+REGULAR_TASK_STAGE_PRINTING = "Printing"
+
+company_regular_task_statuses = {
+    "White Raven": [
+        {"name": REGULAR_TASK_STAGE_FILTER, "color": "#64748B"},
+        {"name": REGULAR_TASK_STAGE_CROP, "color": "#2563EB"},
+        {"name": REGULAR_TASK_STAGE_CUTOUT, "color": "#7C3AED"},
+        {"name": REGULAR_TASK_STAGE_BACKGROUNDS, "color": "#DB2777"},
+        {"name": SCHOOL_PICTURE_STAGE_QC, "color": "#16A34A"},
+        {"name": REGULAR_TASK_STAGE_PRINTING, "color": "#CA8A04"},
+        {"name": SCHOOL_PICTURE_STAGE_DONE, "color": "#0891B2"},
+    ],
 }
 
 company_task_status_renames = {
@@ -85,18 +106,49 @@ company_task_status_renames = {
 
 company_project_board_views = {
     "White Raven": {
-        "backlog": [SCHOOL_PICTURE_STAGE_PICTURES],
-        "working": [SCHOOL_PICTURE_STAGE_ONLINE, SCHOOL_PICTURE_STAGE_PRINT, SCHOOL_PICTURE_STAGE_QC],
+        "backlog": [SCHOOL_PICTURE_STAGE_UPCOMING],
+        "working": [
+            SCHOOL_PICTURE_STAGE_PICTURES,
+            SCHOOL_PICTURE_STAGE_ONLINE,
+            SCHOOL_PICTURE_STAGE_PRINT,
+            SCHOOL_PICTURE_STAGE_QC,
+        ],
         "done": [SCHOOL_PICTURE_STAGE_DONE],
-        "sprint_promote_to": SCHOOL_PICTURE_STAGE_ONLINE,
+        "sprint_promote_to": SCHOOL_PICTURE_STAGE_PICTURES,
         "mark_done_requires_status": SCHOOL_PICTURE_STAGE_QC,
     },
 }
 
-# White Raven: calendar shoots auto-create a school project + assigned task
+company_regular_project_board_views = {
+    "White Raven": {
+        "backlog": [],
+        "working": [
+            REGULAR_TASK_STAGE_FILTER,
+            REGULAR_TASK_STAGE_CROP,
+            REGULAR_TASK_STAGE_CUTOUT,
+            REGULAR_TASK_STAGE_BACKGROUNDS,
+            SCHOOL_PICTURE_STAGE_QC,
+            REGULAR_TASK_STAGE_PRINTING,
+        ],
+        "done": [SCHOOL_PICTURE_STAGE_DONE],
+        "mark_done_requires_status": REGULAR_TASK_STAGE_PRINTING,
+    },
+}
+
+# White Raven: calendar shoots auto-create tasks in one shared project
 company_calendar_task_sync = {
     "White Raven": {
-        "shoot_event_types": ["Fall Picture Day", "Retake Fall Picture Day"],
+        "project_name": "School Pictures",
+        "shoot_event_types": [
+            "Spring Picture Day",
+            "Fall Picture Day",
+            "Retake",
+            "Retake Fall Picture Day",
+            "Graduation",
+            "Rooftop",
+            "Sports",
+            "Senior Pictures",
+        ],
         "shoot_keyword": "shoot",
         "assignee": {"first_name": "Katie", "last_name": "Gleave"},
         "stage_assignees": {
@@ -105,10 +157,23 @@ company_calendar_task_sync = {
             SCHOOL_PICTURE_STAGE_PRINT: {"first_name": "Martha", "last_name": "Whitman"},
             SCHOOL_PICTURE_STAGE_QC: {"first_name": "Ashli", "last_name": "Broadhead"},
         },
-        "task_status": SCHOOL_PICTURE_STAGE_PICTURES,
+        "task_status": SCHOOL_PICTURE_STAGE_UPCOMING,
         "finalize_deadline_weeks": 3,
+        "my_tasks_current_week_only": True,
         "my_tasks_require_sprint": True,
+        "sprint_duration_days": 7,
         "backlog_until_picture_day": True,
+        # shoot_day_reminders — enable on sh/shoot-day-sms-reminders
+        # "shoot_day_reminders": {
+        #     "enabled": True,
+        #     "sms_to_contact": True,
+        #     "sms_to_assignee": True,
+        #     "contact_message": (
+        #         "White Raven Photography: Confirming our {event_type} at {school} "
+        #         "tomorrow ({date}).{details} Please reply if anything has changed. "
+        #         "Thank you!"
+        #     ),
+        # },
     },
 }
 
@@ -139,27 +204,3 @@ project_board_views = {
     "working": ["In Progress", "In Review", "Blocked"],
     "done": ["Done"],
 }
-
-# Proof Pix order CSV import (EventName -> shoot task under school project)
-proofpix_order_sync = {
-    "White Raven": {
-        "strip_trailing_year": True,
-        "create_tasks_on_import": True,
-        "new_task_status": SCHOOL_PICTURE_STAGE_PRINT,
-        # Exact Proof Pix EventName -> Hive Command task.name (when auto-match fails).
-        # Examples that usually auto-match without aliases:
-        #   "Gunnison Valley High School Cap&Gown 2026" -> task "Cap&Gown 2026"
-        #   "Gunnison Valley High Fall Sports" -> task "Fall Sports"
-        "event_aliases": {
-            "Gunnison Valley High": "Fall Picture Day",
-        },
-    },
-}
-
-# Daily inbox import: drop Proof Pix CSV exports here (see PROOFPIX_INBOX_PATH in .env)
-proofpix_inbox = {
-    "company_name": "White Raven",
-    "path": "~/Desktop/ProofPix-Inbox",
-    "schedule_hour": 7,
-}
-

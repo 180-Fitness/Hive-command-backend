@@ -65,7 +65,7 @@ def _task_status_name(task):
     ).strip()
 
 
-def sync_school_picture_assignee(task, company=None):
+def sync_school_picture_assignee(task, company=None, actor=None, notify_assignment=False):
     """Assign school-picture tasks to the owner for their current pipeline stage."""
     if not is_school_picture_task(task):
         return False
@@ -74,15 +74,28 @@ def sync_school_picture_assignee(task, company=None):
     if is_done_status_name(status_name):
         return False
 
+    if status_name == config.SCHOOL_PICTURE_STAGE_UPCOMING:
+        previous_id = task.assignees[0].user_id if len(task.assignees) == 1 else None
+        task.assignees.clear()
+        return previous_id is not None
+
     company = company or company_by_id(task.company_id)
     assignee_cfg = _stage_assignee_cfg(company, status_name)
     assignee = _find_assignee(task.company_id, assignee_cfg)
     if not assignee:
         return False
 
+    previous_id = task.assignees[0].user_id if len(task.assignees) == 1 else None
     task.assignees.clear()
     task.assignees.append(assignee)
-    return True
+    changed = previous_id != assignee.user_id
+
+    if notify_assignment and changed:
+        from util.task_assignment_notifications import notify_stage_assignment
+
+        notify_stage_assignment(task, assignee, status_name, actor)
+
+    return changed
 
 
 def sync_all_school_picture_assignees(company_id):
@@ -251,6 +264,7 @@ def school_shoot_dashboard_meta(task, today=None, company=None):
     """Card outline + countdown colors for the TV school-picture dashboard."""
     today = today or date.today()
     company = company or company_by_id(task.company_id)
+    shoot = picture_date(task)
     finalize = finalize_due_date(task, company)
     done = bool(task.status and is_done_status_name(task.status.name))
     days_remaining = days_until_finalize(task, today, company)
@@ -283,10 +297,15 @@ def school_shoot_dashboard_meta(task, today=None, company=None):
         card_state = "on_track"
         countdown_state = "early"
 
+    # Finalize countdown only applies after picture day (matches TV dashboard).
+    display_days_remaining = days_remaining
+    if shoot and shoot > today and not done:
+        display_days_remaining = None
+
     return {
         "card_state": card_state,
         "countdown_state": countdown_state,
-        "days_remaining": days_remaining,
+        "days_remaining": display_days_remaining,
         "completed_on": completed_on.isoformat() if completed_on else None,
     }
 
@@ -354,9 +373,9 @@ def _timing_summary(rows):
 
 
 def _school_name(task):
-    if task.project and (task.project.name or "").strip():
-        return task.project.name.strip()
-    return (task.name or "").strip() or "School"
+    from util.white_raven_calendar_sync import task_school_name
+
+    return task_school_name(task)
 
 
 def _completed_on_date(task, today=None):
