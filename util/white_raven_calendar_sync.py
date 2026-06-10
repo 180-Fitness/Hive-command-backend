@@ -1,5 +1,3 @@
-from datetime import date
-
 from random import choice
 
 import config
@@ -7,8 +5,7 @@ from sqlalchemy import func
 
 from db import db
 from models.app_users import AppUser
-from models.calendar_events import PICTURE_DAY_TYPES, CalendarEvent
-from models.companies import Company
+from models.calendar_events import SHOOT_EVENT_TYPES, CalendarEvent
 from models.projects import Project
 from models.task_statuses import TaskStatus
 from models.tasks import Task
@@ -28,9 +25,66 @@ def _sync_config(company):
     return config.company_calendar_task_sync.get(company.name)
 
 
+def school_pictures_project_name(company):
+    sync_cfg = _sync_config(company) or {}
+    return (sync_cfg.get("project_name") or "").strip()
+
+
+def _find_or_create_school_pictures_project(company, created_by_id):
+    name = school_pictures_project_name(company)
+    if not name:
+        return None
+
+    target = _normalized_name(name)
+    projects = (
+        db.session.query(Project)
+        .filter(Project.company_id == company.company_id)
+        .filter(Project.active.is_(True))
+        .all()
+    )
+    for project in projects:
+        if _normalized_name(project.name) != target:
+            continue
+        if project.user_deleted:
+            return None
+        return project
+
+    project = Project(
+        company_id=company.company_id,
+        name=name,
+        created_by_id=created_by_id,
+        color=company.color or choice(config.palette),
+        description="Calendar picture day shoots",
+    )
+    db.session.add(project)
+    db.session.flush()
+    return project
+
+
+def task_school_name(task):
+    """Display name for a school (from the linked calendar event, not the project)."""
+    if not task:
+        return "School"
+
+    if task.calendar_event_id:
+        event = (
+            db.session.query(CalendarEvent)
+            .filter(CalendarEvent.calendar_event_id == task.calendar_event_id)
+            .first()
+        )
+        if event and (event.school or "").strip():
+            return event.school.strip()
+
+    return (task.name or "").strip() or "School"
+
+
+def find_or_create_school_pictures_project(company, created_by_id):
+    return _find_or_create_school_pictures_project(company, created_by_id)
+
+
 def is_shoot_event(event, sync_cfg):
     event_type = (event.event_type or "").strip()
-    if event_type in sync_cfg.get("shoot_event_types", list(PICTURE_DAY_TYPES)):
+    if event_type in sync_cfg.get("shoot_event_types", list(SHOOT_EVENT_TYPES)):
         return True
     keyword = (sync_cfg.get("shoot_keyword") or "").strip().lower()
     if not keyword:
@@ -60,37 +114,6 @@ def _find_assignee(company_id, assignee_cfg):
         if can_access_company(user, company_id):
             return user
     return None
-
-
-def _find_or_create_project(company, school, created_by_id):
-    school = (school or "").strip()
-    if not school:
-        return None
-
-    target = _normalized_name(school)
-    projects = (
-        db.session.query(Project)
-        .filter(Project.company_id == company.company_id)
-        .filter(Project.active.is_(True))
-        .all()
-    )
-    for project in projects:
-        if _normalized_name(project.name) != target:
-            continue
-        if project.user_deleted:
-            return None
-        return project
-
-    project = Project(
-        company_id=company.company_id,
-        name=school,
-        created_by_id=created_by_id,
-        color=company.color or choice(config.palette),
-        description="",
-    )
-    db.session.add(project)
-    db.session.flush()
-    return project
 
 
 def _default_task_status(company_id, status_name):
@@ -149,11 +172,22 @@ def _sync_sprint_membership(task, created_by_id=None):
 
 
 def promote_due_calendar_shoots_to_sprint(company_id, created_by_id=None):
-    """Move due shoots into the current weekly sprint."""
-    return sync_due_tasks_into_current_week_sprint(company_id, created_by_id)
+    """Move picture-week shoots from Upcoming into Pictures and the current sprint."""
+    from util.weekly_sprints import sync_all_school_picture_weekly_stages
+
+    updated = sync_all_school_picture_weekly_stages(company_id, created_by_id)
+    if updated:
+        db.session.commit()
+    return updated
 
 
 def _resolve_project(company, event, created_by_id):
+    shared_name = school_pictures_project_name(company)
+    if shared_name:
+        project = _find_or_create_school_pictures_project(company, created_by_id)
+        if project:
+            return project
+
     if event.project_id:
         project = (
             db.session.query(Project)
@@ -165,10 +199,7 @@ def _resolve_project(company, event, created_by_id):
         if project:
             return project
 
-    school = (event.school or "").strip()
-    if not school:
-        return None
-    return _find_or_create_project(company, school, created_by_id)
+    return None
 
 
 def sync_calendar_event_to_task(event, created_by_id=None):
@@ -182,11 +213,11 @@ def sync_calendar_event_to_task(event, created_by_id=None):
         return None
 
     school = (event.school or "").strip()
-    if not school and not event.project_id:
+    if not school:
         return None
 
     actor_id = created_by_id or event.created_by_id
-    status_name = sync_cfg.get("task_status", config.SCHOOL_PICTURE_STAGE_PICTURES)
+    status_name = sync_cfg.get("task_status", config.SCHOOL_PICTURE_STAGE_UPCOMING)
     status = _default_task_status(event.company_id, status_name)
     if not status:
         return None
@@ -194,6 +225,8 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     project = _resolve_project(company, event, actor_id)
     if not project:
         return None
+
+    event.project_id = project.project_id
 
     task_name = _task_name(event)
     description = _task_description(event)
@@ -234,59 +267,92 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     return task
 
 
-def prune_future_picture_day_projects(company_id):
+def sync_school_pictures_project(company_id, created_by_id=None):
     """
-    Hide school projects that only have future picture days; show them once a
-    shoot date is today or earlier. Returns True if any project was updated.
+    Ensure calendar-linked tasks and events use the shared School Pictures project.
+    Returns True if any records were updated.
     """
     company = company_by_id(company_id)
     if not _sync_config(company):
         return False
 
-    today = date.today()
+    shared_name = school_pictures_project_name(company)
+    if not shared_name:
+        return False
+
+    actor_id = created_by_id
+    if not actor_id:
+        actor_id = (
+            db.session.query(AppUser.user_id)
+            .filter(AppUser.active.is_(True))
+            .limit(1)
+            .scalar()
+        )
+
+    project = _find_or_create_school_pictures_project(company, actor_id)
+    if not project:
+        return False
+
     changed = False
+    shared_id = project.project_id
+    shared_target = _normalized_name(shared_name)
 
-    projects = (
-        db.session.query(Project).filter(Project.company_id == company_id).all()
+    if not project.active:
+        project.active = True
+        changed = True
+
+    calendar_tasks = (
+        db.session.query(Task)
+        .filter(Task.company_id == company_id)
+        .filter(Task.calendar_event_id.isnot(None))
+        .filter(Task.active.is_(True))
+        .all()
     )
+    for task in calendar_tasks:
+        if task.project_id != shared_id:
+            task.project_id = shared_id
+            changed = True
 
-    for project in projects:
-        if project.user_deleted:
+    events = (
+        db.session.query(CalendarEvent)
+        .filter(CalendarEvent.company_id == company_id)
+        .filter(CalendarEvent.active.is_(True))
+        .all()
+    )
+    for event in events:
+        if event.project_id != shared_id:
+            event.project_id = shared_id
+            changed = True
+
+    for legacy_project in (
+        db.session.query(Project).filter(Project.company_id == company_id).all()
+    ):
+        if legacy_project.project_id == shared_id or legacy_project.user_deleted:
+            continue
+        if _normalized_name(legacy_project.name) == shared_target:
             continue
 
-        calendar_tasks = (
+        calendar_only_tasks = (
             db.session.query(Task)
-            .filter(Task.project_id == project.project_id)
-            .filter(Task.calendar_event_id.isnot(None))
+            .filter(Task.project_id == legacy_project.project_id)
             .filter(Task.active.is_(True))
             .all()
         )
-        if not calendar_tasks:
+        if not calendar_only_tasks:
+            continue
+        if any(task.calendar_event_id is None for task in calendar_only_tasks):
             continue
 
-        has_non_calendar_tasks = (
-            db.session.query(Task)
-            .filter(Task.project_id == project.project_id)
-            .filter(Task.calendar_event_id.is_(None))
-            .filter(Task.active.is_(True))
-            .first()
-            is not None
-        )
-        if has_non_calendar_tasks:
-            if not project.active:
-                project.active = True
-                changed = True
-            continue
-
-        has_shot_or_past = any(
-            (task_shoot_date(task) or date.max) <= today for task in calendar_tasks
-        )
-        should_be_active = has_shot_or_past
-        if project.active != should_be_active:
-            project.active = should_be_active
+        if legacy_project.active:
+            legacy_project.active = False
             changed = True
 
     return changed
+
+
+def prune_future_picture_day_projects(company_id):
+    """Backward-compatible alias for sync_school_pictures_project."""
+    return sync_school_pictures_project(company_id)
 
 
 def sync_company_calendar_shoots(company_id, created_by_id=None):
@@ -323,6 +389,6 @@ def sync_company_calendar_shoots(company_id, created_by_id=None):
 
     promote_due_calendar_shoots_to_sprint(company_id, created_by_id)
 
-    if created:
+    if created or sync_school_pictures_project(company_id, created_by_id):
         db.session.commit()
     return created

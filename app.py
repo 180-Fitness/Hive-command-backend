@@ -21,7 +21,6 @@ from util.user_schema import ensure_user_columns
 from util.notification_schema import ensure_notification_columns
 from util.task_schema import ensure_task_due_date_column
 from util.project_schema import ensure_project_columns
-from util.order_line_schema import ensure_order_lines_table
 from util.company_seed import ensure_company_task_statuses, seed_hive_group_companies
 from util.user_companies import backfill_user_company_assignments
 
@@ -139,7 +138,6 @@ def create_all(bcrypt):
         ensure_notification_columns()
         ensure_task_due_date_column()
         ensure_project_columns()
-        ensure_order_lines_table()
         seed_bootstrap_data(bcrypt)
 
 

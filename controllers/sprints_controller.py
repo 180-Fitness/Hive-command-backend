@@ -15,7 +15,7 @@ from util.access_control import (
     is_admin,
     resolve_scope_company_id,
 )
-from util.task_sprint import add_task_to_sprint, remove_task_from_sprint
+from util.task_sprint import add_task_to_sprint, clear_sprint_tasks, remove_task_from_sprint, sprint_has_task
 from util.validate_uuid4 import validate_uuid4
 _SPRINT_METADATA_FIELDS = frozenset({"name", "start_date", "end_date", "active"})
 
@@ -32,7 +32,7 @@ def _sprint_deadline_has_passed(sprint):
 
 def _archive_sprint(sprint):
     sprint.active = False
-    sprint.tasks.clear()
+    clear_sprint_tasks(sprint)
 
 
 def _archive_expired_sprints(actor, scope_company_id=None):
@@ -190,7 +190,7 @@ def sprint_update(req: Request, sprint_id, auth_info) -> Response:
         task = db.session.query(Task).filter(Task.task_id == task_id).first()
         if task and can_access_company_scoped(actor, task.company_id, scope):
             if str(task.company_id) == str(sprint.company_id):
-                if task in sprint.tasks:
+                if sprint_has_task(sprint, task):
                     remove_task_from_sprint(sprint, task)
                 else:
                     add_task_to_sprint(sprint, task)
@@ -237,7 +237,7 @@ def sprint_delete(req: Request, sprint_id, auth_info) -> Response:
     if not can_access_company_scoped(actor, sprint.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
-    sprint.tasks.clear()
+    clear_sprint_tasks(sprint)
     db.session.delete(sprint)
     db.session.commit()
     return jsonify({"message": "sprint deleted"}), 200

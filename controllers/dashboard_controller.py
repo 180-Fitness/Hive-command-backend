@@ -25,10 +25,12 @@ DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def _serialize_dashboard_task(task):
+    from util.white_raven_calendar_sync import task_school_name
+
     data = serialize_workload_task(task)
     if task.project:
         data["project_name"] = task.project.name
-        data["school_name"] = task.project.name
+    data["school_name"] = task_school_name(task)
     if task.assignees:
         data["assignees"] = [
             {

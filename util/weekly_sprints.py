@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy.orm import joinedload
+
 import config
 from db import db
 from models.app_users import AppUser
@@ -8,9 +10,43 @@ from models.sprints import Sprint
 from models.task_statuses import TaskStatus
 from models.tasks import Task
 from util.access_control import can_access_company
+from models.tasks_sprints_xref import task_sprints
 from util.company_workflow import company_by_id, done_status_names
-from util.task_sprint import add_task_to_sprint, remove_task_from_sprint
+from util.school_picture_workflow import sync_school_picture_assignee
+from util.task_sprint import (
+    add_task_to_sprint,
+    clear_task_sprints,
+    remove_task_from_sprint,
+    sprint_has_task,
+)
 from util.task_workload import week_bounds
+
+
+def _upcoming_resettable_statuses():
+    return {
+        config.SCHOOL_PICTURE_STAGE_UPCOMING,
+        config.SCHOOL_PICTURE_STAGE_PICTURES,
+    }
+
+
+def _task_status_name(task):
+    if task.status and task.status.task_status_id == task.task_status_id:
+        return (task.status.name or "").strip()
+    status_row = (
+        db.session.query(TaskStatus)
+        .filter(TaskStatus.task_status_id == task.task_status_id)
+        .first()
+    )
+    return (status_row.name if status_row else "").strip()
+
+
+def _status_by_name(company_id, name):
+    return (
+        db.session.query(TaskStatus)
+        .filter(TaskStatus.company_id == company_id)
+        .filter(TaskStatus.name == name)
+        .first()
+    )
 
 
 def _sync_config(company):
@@ -105,8 +141,12 @@ def _find_or_create_week_sprint(company_id, week_start, created_by_id):
     return sprint
 
 
-def _task_is_done(task, company_id):
-    done_names = set(done_status_names(company_id))
+def _task_is_done(task, company_id, done_names=None):
+    if done_names is None:
+        done_names = set(done_status_names(company_id))
+    else:
+        done_names = set(done_names)
+
     status = task.status
     if status and status.name in done_names:
         return True
@@ -120,19 +160,44 @@ def _task_is_done(task, company_id):
 
 
 def _rollover_sprint_tasks(old_sprint, current_sprint, company_id):
+    done_names = set(done_status_names(company_id))
     moved = 0
-    for task in list(old_sprint.tasks):
-        if not task.active:
-            remove_task_from_sprint(old_sprint, task)
+
+    task_ids = [
+        row[0]
+        for row in db.session.query(task_sprints.c.task_id)
+        .filter(task_sprints.c.sprint_id == old_sprint.sprint_id)
+        .all()
+    ]
+    if not task_ids:
+        return 0
+
+    tasks = (
+        db.session.query(Task)
+        .options(joinedload(Task.status))
+        .filter(Task.task_id.in_(task_ids))
+        .all()
+    )
+
+    for task in tasks:
+        if not task.active or _task_is_done(task, company_id, done_names):
             continue
-        if _task_is_done(task, company_id):
-            remove_task_from_sprint(old_sprint, task)
-            continue
-        if task not in current_sprint.tasks:
+        if not sprint_has_task(current_sprint, task):
             add_task_to_sprint(current_sprint, task)
             moved += 1
-        remove_task_from_sprint(old_sprint, task)
+
+    db.session.execute(
+        task_sprints.delete().where(task_sprints.c.sprint_id == old_sprint.sprint_id)
+    )
+    _expire_sprint_membership(old_sprint, tasks)
+
     return moved
+
+
+def _expire_sprint_membership(sprint, tasks):
+    db.session.expire(sprint, ["tasks"])
+    for task in tasks:
+        db.session.expire(task, ["sprints"])
 
 
 def ensure_weekly_sprint_rollover(company_id, created_by_id=None):
@@ -161,7 +226,6 @@ def ensure_weekly_sprint_rollover(company_id, created_by_id=None):
         if _rollover_sprint_tasks(old_sprint, current_sprint, company_id):
             changed = True
         old_sprint.active = False
-        old_sprint.tasks.clear()
         changed = True
 
     if changed:
@@ -171,13 +235,15 @@ def ensure_weekly_sprint_rollover(company_id, created_by_id=None):
 
 
 def sync_due_tasks_into_current_week_sprint(company_id, created_by_id=None):
-    """Add active tasks due this week (or earlier) to the current weekly sprint."""
+    """Add active tasks due this week to the current weekly sprint."""
     if not uses_weekly_sprints(company_id):
         return 0
 
+    calendar_updated = sync_all_school_picture_weekly_stages(company_id, created_by_id)
+
     current_sprint = ensure_weekly_sprint_rollover(company_id, created_by_id)
     if not current_sprint:
-        return 0
+        return calendar_updated
 
     week_start, week_end = week_bounds()
     tasks = (
@@ -188,24 +254,24 @@ def sync_due_tasks_into_current_week_sprint(company_id, created_by_id=None):
     )
 
     promoted = 0
-    for task in tasks:
-        sprint_date = _task_sprint_date(task)
-        if not sprint_date or sprint_date < week_start or sprint_date > week_end:
-            continue
-        if task in current_sprint.tasks:
-            continue
-        for sprint in list(task.sprints):
-            remove_task_from_sprint(sprint, task)
-        add_task_to_sprint(current_sprint, task)
-        promoted += 1
+    with db.session.no_autoflush:
+        for task in tasks:
+            sprint_date = _task_sprint_date(task)
+            if not sprint_date or sprint_date < week_start or sprint_date > week_end:
+                continue
+            if sprint_has_task(current_sprint, task):
+                continue
+            clear_task_sprints(task)
+            add_task_to_sprint(current_sprint, task)
+            promoted += 1
 
-    if promoted:
+    if promoted or calendar_updated:
         db.session.commit()
-    return promoted
+    return promoted + calendar_updated
 
 
 def sync_task_weekly_sprint_membership(task, created_by_id=None):
-    """Keep a task in the current weekly sprint when due this week, otherwise backlog."""
+    """Keep calendar tasks in Upcoming until picture week, then sprint + Pictures."""
     sync_cfg = _sync_config(company_by_id(task.company_id))
     if not sync_cfg or not sync_cfg.get("backlog_until_picture_day"):
         return
@@ -222,21 +288,50 @@ def sync_task_weekly_sprint_membership(task, created_by_id=None):
     if not current_sprint:
         return
 
+    upcoming_name = sync_cfg.get("task_status", config.SCHOOL_PICTURE_STAGE_UPCOMING)
+    current_name = _task_status_name(task)
+
     if sprint_date > week_end:
-        task.sprints.clear()
-        status_name = sync_cfg.get("task_status", config.SCHOOL_PICTURE_STAGE_PICTURES)
-        backlog_status = (
-            db.session.query(TaskStatus)
-            .filter(TaskStatus.company_id == task.company_id)
-            .filter(TaskStatus.name == status_name)
-            .first()
-        )
-        if backlog_status:
-            task.task_status_id = backlog_status.task_status_id
+        clear_task_sprints(task)
+        if current_name in _upcoming_resettable_statuses():
+            upcoming_status = _status_by_name(task.company_id, upcoming_name)
+            if upcoming_status:
+                task.task_status_id = upcoming_status.task_status_id
+                sync_school_picture_assignee(task)
         return
 
-    for sprint in list(task.sprints):
-        if sprint.sprint_id != current_sprint.sprint_id:
-            remove_task_from_sprint(sprint, task)
-    if task not in current_sprint.tasks:
+    other_sprint_ids = [
+        row[0]
+        for row in db.session.query(task_sprints.c.sprint_id)
+        .filter(task_sprints.c.task_id == task.task_id)
+        .filter(task_sprints.c.sprint_id != current_sprint.sprint_id)
+        .all()
+    ]
+    for sprint_id in other_sprint_ids:
+        other_sprint = db.session.query(Sprint).filter(Sprint.sprint_id == sprint_id).first()
+        if other_sprint:
+            remove_task_from_sprint(other_sprint, task)
+    if not sprint_has_task(current_sprint, task):
         add_task_to_sprint(current_sprint, task)
+
+
+def sync_all_school_picture_weekly_stages(company_id, created_by_id=None):
+    """Sync every calendar-linked task into Upcoming or picture-week Pictures."""
+    if not uses_weekly_sprints(company_id):
+        return 0
+
+    ensure_weekly_sprint_rollover(company_id, created_by_id)
+
+    tasks = (
+        db.session.query(Task)
+        .options(joinedload(Task.status))
+        .filter(Task.company_id == company_id)
+        .filter(Task.calendar_event_id.isnot(None))
+        .filter(Task.active.is_(True))
+        .all()
+    )
+
+    for task in tasks:
+        sync_task_weekly_sprint_membership(task, created_by_id)
+
+    return len(tasks)

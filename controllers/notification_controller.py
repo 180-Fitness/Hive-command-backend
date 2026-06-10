@@ -5,6 +5,7 @@ from lib.authenticate import authenticate_return_auth
 from models.notifications import Notification, notification_schema, notifications_schema
 from util.access_control import get_actor, is_admin, resolve_scope_company_id
 from util.calendar_reminders import generate_calendar_reminders
+# from util.shoot_day_reminders import generate_shoot_day_reminders  # sh/shoot-day-sms-reminders
 from util.validate_uuid4 import validate_uuid4
 
 
@@ -17,6 +18,7 @@ def notifications_get(req: Request, auth_info) -> Response:
     scope = resolve_scope_company_id(req, actor)
     if is_admin(actor) and scope:
         generate_calendar_reminders(scope)
+        # generate_shoot_day_reminders(scope)  # sh/shoot-day-sms-reminders
 
     query = (
         db.session.query(Notification)

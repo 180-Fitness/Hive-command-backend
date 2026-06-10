@@ -19,8 +19,13 @@ from util.access_control import (
     resolve_scope_company_id,
 )
 from util.calendar_reminders import generate_calendar_reminders
+# from util.phone import normalize_phone
+# from util.shoot_day_reminders import generate_shoot_day_reminders  # sh/shoot-day-sms-reminders
+from util.company_workflow import company_by_id
 from util.white_raven_calendar_sync import (
+    find_or_create_school_pictures_project,
     promote_due_calendar_shoots_to_sprint,
+    school_pictures_project_name,
     sync_calendar_event_to_task,
     sync_company_calendar_shoots,
 )
@@ -87,11 +92,21 @@ def _event_from_payload(payload, *, company_id, created_by_id, source="manual"):
     if not event_type and source == "manual":
         return None, (jsonify({"message": "Event type is required"}), 400)
 
-    project_id, project_error = _parse_project_id(
-        payload, company_id, required=source == "manual"
-    )
-    if project_error:
-        return None, project_error
+    company = company_by_id(company_id)
+    if school_pictures_project_name(company):
+        project = find_or_create_school_pictures_project(company, created_by_id)
+        if not project:
+            return None, (
+                jsonify({"message": "Could not resolve School Pictures project"}),
+                500,
+            )
+        project_id = project.project_id
+    else:
+        project_id, project_error = _parse_project_id(
+            payload, company_id, required=source == "manual"
+        )
+        if project_error:
+            return None, project_error
 
     event_date = _parse_event_date(payload)
     if not event_date:
@@ -101,6 +116,7 @@ def _event_from_payload(payload, *, company_id, created_by_id, source="manual"):
         )
 
     location = (payload.get("location") or "").strip()
+    # contact_phone = normalize_phone(payload.get("contact_phone", ""))  # sh/shoot-day-sms-reminders
     event = CalendarEvent(
         company_id=company_id,
         title=title or school,
@@ -205,6 +221,7 @@ def calendar_event_add(req: Request, auth_info) -> Response:
     sync_calendar_event_to_task(event, actor.user_id)
     db.session.commit()
     generate_calendar_reminders(company_id)
+    # generate_shoot_day_reminders(company_id)  # sh/shoot-day-sms-reminders
     return jsonify(
         {"message": "event added", "results": calendar_event_schema.dump(event)}
     ), 201
@@ -237,6 +254,8 @@ def calendar_event_update(req: Request, event_id, auth_info) -> Response:
         event_date = _parse_event_date(payload)
         if not event_date:
             return jsonify({"message": "A valid date (month, day, year) is required"}), 400
+        # if event.event_date != event_date:
+        #     event.shoot_reminder_sms_sent_at = None  # sh/shoot-day-sms-reminders
         event.event_date = event_date
         payload.pop("event_date", None)
         payload.pop("month", None)
@@ -248,12 +267,15 @@ def calendar_event_update(req: Request, event_id, auth_info) -> Response:
     if "num_students" in payload:
         event.num_students = _parse_optional_int(payload.pop("num_students"))
 
-    if "project_id" in payload:
+    company = company_by_id(event.company_id)
+    if not school_pictures_project_name(company) and "project_id" in payload:
         project_id, project_error = _parse_project_id(payload, event.company_id)
         if project_error:
             return project_error
         event.project_id = project_id
         payload.pop("project_id")
+    else:
+        payload.pop("project_id", None)
 
     payload.pop("source", None)
     error = populate_object(event, payload)
@@ -266,6 +288,11 @@ def calendar_event_update(req: Request, event_id, auth_info) -> Response:
         event.event_type = (event.event_type or "").strip()
     if "location" in payload:
         event.location = (event.location or "").strip()
+    # if "contact_phone" in payload:  # sh/shoot-day-sms-reminders
+    #     previous_phone = event.contact_phone
+    #     event.contact_phone = normalize_phone(payload.get("contact_phone", ""))
+    #     if event.contact_phone != previous_phone:
+    #         event.shoot_reminder_sms_sent_at = None
     if "description" in payload or "location" in payload:
         event.description = _description_from_location(event.description, event.location)
 
@@ -273,6 +300,7 @@ def calendar_event_update(req: Request, event_id, auth_info) -> Response:
 
     sync_calendar_event_to_task(event, actor.user_id)
     db.session.commit()
+    # generate_shoot_day_reminders(event.company_id)  # sh/shoot-day-sms-reminders
     return jsonify(
         {"message": "event updated", "results": calendar_event_schema.dump(event)}
     ), 200
@@ -368,6 +396,7 @@ def calendar_sync_numbers(req: Request, auth_info) -> Response:
 
     db.session.commit()
     generate_calendar_reminders(company_id)
+    # generate_shoot_day_reminders(company_id)  # sh/shoot-day-sms-reminders
 
     return jsonify(
         {

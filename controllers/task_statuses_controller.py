@@ -12,7 +12,10 @@ from util.access_control import (
 from util.company_workflow import (
     company_by_id,
     company_has_school_picture_tasks,
-    project_board_views_for_company,
+    regular_board_views_for_company,
+    regular_task_status_names,
+    school_picture_board_views_for_company,
+    school_picture_status_names,
 )
 from util.validate_uuid4 import validate_uuid4
 
@@ -34,12 +37,17 @@ def task_statuses_get(req: Request, auth_info) -> Response:
         .all()
     )
     company = company_by_id(company_id)
-    board_views = project_board_views_for_company(company)
+    school_board_views = school_picture_board_views_for_company(company)
+    regular_board_views = regular_board_views_for_company(company)
     return jsonify(
         {
             "message": "task statuses found",
             "results": task_statuses_schema.dump(rows),
-            "board_views": board_views,
+            "board_views": regular_board_views,
+            "school_picture_board_views": school_board_views,
+            "regular_board_views": regular_board_views,
+            "school_picture_status_names": school_picture_status_names(company),
+            "regular_status_names": regular_task_status_names(company),
             "school_picture_tasks": company_has_school_picture_tasks(company_id),
         }
     ), 200

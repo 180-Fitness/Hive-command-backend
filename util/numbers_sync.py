@@ -30,8 +30,7 @@ MONTH_NAMES = {
     "dec": 12,
 }
 
-FALL_PICTURE_DAY = "Fall Picture Day"
-RETAKE_FALL_PICTURE_DAY = "Retake Fall Picture Day"
+from models.calendar_events import FALL_PICTURE_DAY, RETAKE_PICTURE_DAY
 
 TITLE_KEYS = ("title", "event", "name", "subject")
 DATE_KEYS = ("date", "event_date", "when")
@@ -216,7 +215,7 @@ def _row_to_school_events(row, cols):
     if retake_date:
         events.append(
             _build_school_event(
-                school, RETAKE_FALL_PICTURE_DAY, retake_date, stations, students, location
+                school, RETAKE_PICTURE_DAY, retake_date, stations, students, location
             )
         )
 

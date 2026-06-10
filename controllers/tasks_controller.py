@@ -19,6 +19,7 @@ from util.access_control import (
     resolve_scope_company_id,
 )
 from util.company_workflow import company_has_school_picture_tasks
+from util.task_sprint import clear_task_sprints
 from util.reflection import populate_object
 from util.school_picture_workflow import (
     attach_school_picture_fields,
@@ -55,7 +56,7 @@ def _return_task_to_backlog_pool(task):
         .first()
     )
     if status and status.name in _backlog_status_names(task.company_id):
-        task.sprints.clear()
+        clear_task_sprints(task)
 
 
 def _serialize_assignees(task):
@@ -78,8 +79,9 @@ def _attach_school_picture_dashboard_fields(data, task):
         return data
 
     data.update(school_shoot_dashboard_meta(task))
-    if task.project and (task.project.name or "").strip():
-        data["school_name"] = task.project.name.strip()
+    from util.white_raven_calendar_sync import task_school_name
+
+    data["school_name"] = task_school_name(task)
     data["assignees"] = _serialize_assignees(task)
     return data
 
@@ -206,8 +208,10 @@ def tasks_school_pictures_get(req: Request, auth_info) -> Response:
         return jsonify({"message": "school picture tasks not available", "results": []}), 200
 
     from models.calendar_events import CalendarEvent
+    from util.company_seed import ensure_company_task_statuses
     from util.white_raven_calendar_sync import promote_due_calendar_shoots_to_sprint
 
+    ensure_company_task_statuses(scope)
     promote_due_calendar_shoots_to_sprint(scope, actor.user_id)
 
     query = (
@@ -340,7 +344,10 @@ def _is_transition_to_done(task, new_status_id):
     )
     if not new_status:
         return False
-    return new_status.name in done_status_names(task.company_id)
+    is_school = bool(task.calendar_event_id)
+    return new_status.name in done_status_names(
+        task.company_id, is_school_task=is_school
+    )
 
 
 def _validate_school_done_delivery(task, new_status_id):
@@ -489,7 +496,10 @@ def task_update(req: Request, task_id, auth_info) -> Response:
 
         current_name = task.status.name if task.status else None
         status_error = validate_mark_done_transition(
-            task.company_id, current_name, payload["task_status_id"]
+            task.company_id,
+            current_name,
+            payload["task_status_id"],
+            is_school_task=bool(task.calendar_event_id),
         )
         if status_error:
             return jsonify({"message": status_error}), 400
@@ -505,7 +515,7 @@ def task_update(req: Request, task_id, auth_info) -> Response:
     if "task_status_id" in payload:
         from util.school_picture_workflow import sync_school_picture_assignee
 
-        sync_school_picture_assignee(task)
+        sync_school_picture_assignee(task, actor=actor, notify_assignment=True)
 
     _return_task_to_backlog_pool(task)
 
