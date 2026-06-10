@@ -14,7 +14,10 @@ from util.dashboard_accounts import verify_dashboard_credentials
 from util.school_picture_workflow import (
     attach_school_picture_fields,
     dashboard_bucket_date,
+    is_school_picture_task,
+    picture_date,
     school_picture_in_pipeline,
+    school_shoot_dashboard_meta,
 )
 from util.task_workload import is_done_status_name, serialize_workload_task, week_bounds
 
@@ -25,6 +28,7 @@ def _serialize_dashboard_task(task):
     data = serialize_workload_task(task)
     if task.project:
         data["project_name"] = task.project.name
+        data["school_name"] = task.project.name
     if task.assignees:
         data["assignees"] = [
             {
@@ -53,6 +57,32 @@ def _sort_tasks(rows):
     rows.sort(
         key=lambda row: (row.get("due_date") or "9999-99-99", row["name"].lower())
     )
+
+
+_CARD_STATE_ORDER = {"overdue": 0, "closing": 1, "on_track": 2, "finished": 3}
+
+
+def _build_school_shoots(tasks, today):
+    shoots = []
+    for task in tasks:
+        if not is_school_picture_task(task):
+            continue
+        shoot = picture_date(task)
+        if not shoot or shoot > today:
+            continue
+
+        serialized = _serialize_dashboard_task(task)
+        serialized.update(school_shoot_dashboard_meta(task, today))
+        shoots.append(serialized)
+
+    shoots.sort(
+        key=lambda row: (
+            _CARD_STATE_ORDER.get(row.get("card_state"), 9),
+            row.get("days_remaining") if row.get("days_remaining") is not None else 9999,
+            (row.get("school_name") or row.get("name") or "").lower(),
+        )
+    )
+    return shoots
 
 
 def _purge_expired_dashboard_tokens():
@@ -124,6 +154,14 @@ def _build_company_summary(company, today, week_start, week_end):
     for bucket in (overdue, due_today, due_rest_of_week, in_progress):
         _sort_tasks(bucket)
 
+    school_shoots = _build_school_shoots(tasks, today)
+    shoot_stats = {
+        "overdue": sum(1 for row in school_shoots if row.get("card_state") == "overdue"),
+        "closing": sum(1 for row in school_shoots if row.get("card_state") == "closing"),
+        "on_track": sum(1 for row in school_shoots if row.get("card_state") == "on_track"),
+        "finished": sum(1 for row in school_shoots if row.get("card_state") == "finished"),
+    }
+
     return {
         "company_id": str(company.company_id),
         "name": company.name,
@@ -133,6 +171,8 @@ def _build_company_summary(company, today, week_start, week_end):
         "due_today": due_today,
         "due_rest_of_week": due_rest_of_week,
         "in_progress": in_progress,
+        "school_shoots": school_shoots,
+        "shoot_stats": shoot_stats,
         "events": [_serialize_calendar_event(event) for event in events],
         "open_count": len(overdue)
         + len(due_today)

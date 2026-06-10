@@ -99,6 +99,12 @@ company_calendar_task_sync = {
         "shoot_event_types": ["Fall Picture Day", "Retake Fall Picture Day"],
         "shoot_keyword": "shoot",
         "assignee": {"first_name": "Katie", "last_name": "Gleave"},
+        "stage_assignees": {
+            SCHOOL_PICTURE_STAGE_PICTURES: {"first_name": "Katie", "last_name": "Gleave"},
+            SCHOOL_PICTURE_STAGE_ONLINE: {"first_name": "Ashli", "last_name": "Broadhead"},
+            SCHOOL_PICTURE_STAGE_PRINT: {"first_name": "Martha", "last_name": "Whitman"},
+            SCHOOL_PICTURE_STAGE_QC: {"first_name": "Ashli", "last_name": "Broadhead"},
+        },
         "task_status": SCHOOL_PICTURE_STAGE_PICTURES,
         "finalize_deadline_weeks": 3,
         "my_tasks_require_sprint": True,

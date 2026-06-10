@@ -14,6 +14,7 @@ from models.task_statuses import TaskStatus
 from models.tasks import Task
 from util.access_control import can_access_company
 from util.company_workflow import company_by_id
+from util.school_picture_workflow import sync_school_picture_assignee
 from util.task_sprint import add_task_to_sprint
 
 
@@ -111,13 +112,6 @@ def _task_description(event):
 
 def _task_name(event):
     return (event.title or "").strip() or (event.school or "").strip() or "Shoot"
-
-
-def _ensure_assignee(task, assignee):
-    if not assignee:
-        return
-    if assignee not in task.assignees:
-        task.assignees.append(assignee)
 
 
 def my_tasks_require_sprint(company_id):
@@ -236,7 +230,6 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     if not project:
         return None
 
-    assignee = _find_assignee(event.company_id, sync_cfg.get("assignee", {}))
     task_name = _task_name(event)
     description = _task_description(event)
 
@@ -252,8 +245,8 @@ def sync_calendar_event_to_task(event, created_by_id=None):
         task.description = description
         task.due_date = event.event_date
         task.project_id = project.project_id
-        _ensure_assignee(task, assignee)
         _sync_sprint_membership(task, actor_id)
+        sync_school_picture_assignee(task, company)
         return task
 
     task = Task(
@@ -268,8 +261,8 @@ def sync_calendar_event_to_task(event, created_by_id=None):
     task.calendar_event_id = event.calendar_event_id
     db.session.add(task)
     db.session.flush()
-    _ensure_assignee(task, assignee)
     _sync_sprint_membership(task, actor_id)
+    sync_school_picture_assignee(task, company)
     return task
 
 

@@ -19,7 +19,11 @@ from util.access_control import (
     resolve_scope_company_id,
 )
 from util.reflection import populate_object
-from util.school_picture_workflow import attach_school_picture_fields
+from util.school_picture_workflow import (
+    attach_school_picture_fields,
+    is_school_picture_task,
+    school_shoot_dashboard_meta,
+)
 from util.validate_uuid4 import validate_uuid4
 
 
@@ -53,6 +57,32 @@ def _return_task_to_backlog_pool(task):
         task.sprints.clear()
 
 
+def _serialize_assignees(task):
+    if not task.assignees:
+        return []
+    return [
+        {
+            "user_id": str(assignee.user_id),
+            "first_name": assignee.first_name,
+            "last_name": assignee.last_name,
+            "color": assignee.color,
+        }
+        for assignee in task.assignees
+    ]
+
+
+def _attach_school_picture_dashboard_fields(data, task):
+    data = attach_school_picture_fields(data, task)
+    if not is_school_picture_task(task):
+        return data
+
+    data.update(school_shoot_dashboard_meta(task))
+    if task.project and (task.project.name or "").strip():
+        data["school_name"] = task.project.name.strip()
+    data["assignees"] = _serialize_assignees(task)
+    return data
+
+
 def _enrich_task_row(task, data, *, in_sprint=None):
     if task.status:
         data["status"] = {
@@ -64,7 +94,7 @@ def _enrich_task_row(task, data, *, in_sprint=None):
         data["in_sprint"] = in_sprint
     elif "in_sprint" not in data:
         data["in_sprint"] = len(task.sprints) > 0
-    return attach_school_picture_fields(data, task)
+    return _attach_school_picture_dashboard_fields(data, task)
 
 
 def _serialize_backlog_tasks(tasks):
@@ -105,7 +135,11 @@ def tasks_backlog_get(req: Request, auth_info) -> Response:
             (Task.task_status_id == TaskStatus.task_status_id)
             & (Task.company_id == TaskStatus.company_id),
         )
-        .options(joinedload(Task.status))
+        .options(
+            joinedload(Task.status),
+            joinedload(Task.project),
+            joinedload(Task.assignees),
+        )
         .filter(Task.active.is_(True))
         .filter(~Task.sprints.any())
         .filter(TaskStatus.name.in_(backlog_names))
@@ -129,7 +163,12 @@ def tasks_get(req: Request, auth_info) -> Response:
 
     query = (
         db.session.query(Task)
-        .options(joinedload(Task.sprints), joinedload(Task.status))
+        .options(
+            joinedload(Task.sprints),
+            joinedload(Task.status),
+            joinedload(Task.project),
+            joinedload(Task.assignees),
+        )
         .filter(Task.active.is_(True))
         .order_by(Task.created_at.desc())
     )
@@ -160,7 +199,12 @@ def tasks_my_get(req: Request, auth_info) -> Response:
 
     query = (
         db.session.query(Task)
-        .options(joinedload(Task.sprints), joinedload(Task.status))
+        .options(
+            joinedload(Task.sprints),
+            joinedload(Task.status),
+            joinedload(Task.project),
+            joinedload(Task.assignees),
+        )
         .filter(Task.active.is_(True))
         .filter(Task.assignees.any(AppUser.user_id == actor.user_id))
         .order_by(Task.created_at.desc())
@@ -211,7 +255,7 @@ def _load_task_detail(task_id):
 def _serialize_task_detail(task):
     result = task_detail_schema.dump(task)
     result["in_sprint"] = len(task.sprints) > 0
-    return attach_school_picture_fields(result, task)
+    return _attach_school_picture_dashboard_fields(result, task)
 
 
 def _default_status_id(company_id):
@@ -334,6 +378,11 @@ def task_update(req: Request, task_id, auth_info) -> Response:
     error = populate_object(task, payload)
     if error:
         return error
+
+    if "task_status_id" in payload:
+        from util.school_picture_workflow import sync_school_picture_assignee
+
+        sync_school_picture_assignee(task)
 
     _return_task_to_backlog_pool(task)
 
