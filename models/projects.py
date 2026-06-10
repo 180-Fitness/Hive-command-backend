@@ -21,6 +21,7 @@ class Project(db.Model):
     color = db.Column(db.String(), nullable=False, default="#2563EB")
     description = db.Column(db.String(), nullable=False, default="")
     active = db.Column(db.Boolean(), nullable=False, default=True)
+    user_deleted = db.Column(db.Boolean(), nullable=False, default=False)
     created_by_id = db.Column(UUID(as_uuid=True), db.ForeignKey("app_users.user_id"), nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
@@ -38,6 +39,7 @@ class Project(db.Model):
         description="",
         client_id=None,
         active=True,
+        user_deleted=False,
     ):
         self.company_id = company_id
         self.name = name
@@ -46,6 +48,7 @@ class Project(db.Model):
         self.description = description
         self.client_id = client_id
         self.active = active
+        self.user_deleted = user_deleted
 
 
 class ProjectSchema(ma.Schema):

@@ -70,6 +70,17 @@ def sprints_get(req: Request, auth_info) -> Response:
         return jsonify({"message": "Unauthorized"}), 401
 
     scope = resolve_scope_company_id(req, actor)
+    if scope:
+        from util.weekly_sprints import (
+            ensure_weekly_sprint_rollover,
+            sync_due_tasks_into_current_week_sprint,
+            uses_weekly_sprints,
+        )
+
+        if uses_weekly_sprints(scope):
+            ensure_weekly_sprint_rollover(scope, actor.user_id)
+            sync_due_tasks_into_current_week_sprint(scope, actor.user_id)
+
     _archive_expired_sprints(actor, scope)
 
     query = (
@@ -101,6 +112,15 @@ def sprint_get_by_id(req: Request, sprint_id, auth_info) -> Response:
     scope = resolve_scope_company_id(req, actor)
     if not can_access_company_scoped(actor, sprint.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
+
+    if scope:
+        from util.weekly_sprints import (
+            ensure_weekly_sprint_rollover,
+            uses_weekly_sprints,
+        )
+
+        if uses_weekly_sprints(scope):
+            ensure_weekly_sprint_rollover(scope, actor.user_id)
 
     if not sprint.active:
         return jsonify({"message": "This sprint has been archived"}), 404

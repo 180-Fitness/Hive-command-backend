@@ -11,6 +11,13 @@ def company_by_id(company_id):
     return query(Company).filter(Company.company_id == company_id).first()
 
 
+def company_has_school_picture_tasks(company_id):
+    company = company_by_id(company_id)
+    if not company:
+        return False
+    return company.name in config.company_calendar_task_sync
+
+
 def task_status_defs_for_company(company):
     if not company:
         return config.default_task_statuses

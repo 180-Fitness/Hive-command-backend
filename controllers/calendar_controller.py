@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from flask import Request, Response, jsonify
 
@@ -330,16 +330,21 @@ def calendar_sync_numbers(req: Request, auth_info) -> Response:
     except Exception as exc:
         return jsonify({"message": f"Could not read Numbers file: {exc}"}), 400
 
+    min_event_date = date(date.today().year, 1, 1)
+
     (
         db.session.query(CalendarEvent)
         .filter(CalendarEvent.company_id == company_id)
         .filter(CalendarEvent.source == "numbers")
         .filter(CalendarEvent.active.is_(True))
+        .filter(CalendarEvent.event_date >= min_event_date)
         .update({"active": False}, synchronize_session=False)
     )
 
     created = []
     for row in parsed:
+        if row["event_date"] < min_event_date:
+            continue
         event = CalendarEvent(
             company_id=company_id,
             title=row["title"],

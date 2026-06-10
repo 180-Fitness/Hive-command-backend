@@ -1,8 +1,10 @@
 from flask import Request, Response, jsonify
+from sqlalchemy import func
 
 from db import db
 from lib.authenticate import authenticate_return_auth
 from models.projects import Project, project_schema, projects_schema
+from models.tasks import Task
 from util.access_control import (
     can_access_company_scoped,
     company_scope_filter,
@@ -28,7 +30,11 @@ def projects_get(req: Request, auth_info) -> Response:
         if prune_future_picture_day_projects(scope):
             db.session.commit()
 
-    query = db.session.query(Project).filter(Project.active.is_(True)).order_by(Project.name.asc())
+    query = (
+        db.session.query(Project)
+        .filter(Project.active.is_(True))
+        .order_by(func.lower(Project.name).asc())
+    )
     query = company_scope_filter(query, Project, actor, scope)
     return jsonify({"message": "projects found", "results": projects_schema.dump(query.all())}), 200
 
@@ -122,5 +128,10 @@ def project_delete(req: Request, project_id, auth_info) -> Response:
         return jsonify({"message": "Forbidden"}), 403
 
     project.active = False
+    project.user_deleted = True
+    db.session.query(Task).filter(
+        Task.project_id == project.project_id,
+        Task.active.is_(True),
+    ).update({Task.active: False}, synchronize_session=False)
     db.session.commit()
     return jsonify({"message": "project deleted"}), 200

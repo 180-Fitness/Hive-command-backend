@@ -67,6 +67,15 @@ company_task_status_renames = {
     },
 }
 
+# Auto-assign school picture tasks when moved into a workflow stage
+company_school_task_status_assignees = {
+    "White Raven": {
+        "Online, Data": {"first_name": "Ashli", "last_name": "Broadhead"},
+        "Printing": {"first_name": "Martha", "last_name": "Whitman"},
+        "QC": {"first_name": "Ashli", "last_name": "Broadhead"},
+    },
+}
+
 company_project_board_views = {
     "White Raven": {
         "backlog": ["Shoot, Edit"],
@@ -84,8 +93,10 @@ company_calendar_task_sync = {
         "shoot_keyword": "shoot",
         "assignee": {"first_name": "Katie", "last_name": "Gleave"},
         "task_status": "Shoot, Edit",
-        "my_tasks_require_sprint": True,
+        "my_tasks_current_week_only": True,
+        "sprint_duration_days": 7,
         "backlog_until_picture_day": True,
+        "task_due_date_offset_days": 21,
     },
 }
 

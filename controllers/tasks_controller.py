@@ -18,6 +18,7 @@ from util.access_control import (
     get_actor,
     resolve_scope_company_id,
 )
+from util.company_workflow import company_has_school_picture_tasks
 from util.reflection import populate_object
 from util.validate_uuid4 import validate_uuid4
 
@@ -55,7 +56,7 @@ def _return_task_to_backlog_pool(task):
 def _serialize_backlog_tasks(tasks):
     rows = []
     for task in tasks:
-        data = task_schema.dump(task)
+        data = _serialize_task_row(task)
         if task.status:
             data["status"] = {
                 "task_status_id": str(task.status.task_status_id),
@@ -71,8 +72,28 @@ def _serialize_backlog_tasks(tasks):
 def _serialize_task_list(tasks):
     rows = []
     for task in tasks:
-        data = task_schema.dump(task)
-        data["in_sprint"] = len(task.sprints) > 0
+        data = _serialize_task_row(task)
+        rows.append(data)
+    return rows
+
+
+def _serialize_task_row(task):
+    data = task_schema.dump(task)
+    data["in_sprint"] = len(task.sprints) > 0
+    return data
+
+
+def _serialize_school_picture_tasks(tasks):
+    from models.app_users import assignees_schema
+    from util.white_raven_calendar_sync import task_shoot_date
+
+    rows = []
+    for task in tasks:
+        data = _serialize_task_row(task)
+        data["assignees"] = assignees_schema.dump(task.assignees or [])
+        shoot_date = task_shoot_date(task)
+        if shoot_date:
+            data["shoot_date"] = shoot_date.isoformat()
         rows.append(data)
     return rows
 
@@ -128,9 +149,51 @@ def tasks_get(req: Request, auth_info) -> Response:
         .order_by(Task.created_at.desc())
     )
     scope = resolve_scope_company_id(req, actor)
+    if scope and company_has_school_picture_tasks(scope):
+        query = query.filter(Task.calendar_event_id.is_(None))
     query = company_scope_filter(query, Task, actor, scope)
     return jsonify(
         {"message": "tasks found", "results": _serialize_task_list(query.all())}
+    ), 200
+
+
+@authenticate_return_auth
+def tasks_school_pictures_get(req: Request, auth_info) -> Response:
+    actor = get_actor(auth_info)
+    if not actor:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    scope = resolve_scope_company_id(req, actor)
+    if not scope or not company_has_school_picture_tasks(scope):
+        return jsonify({"message": "school picture tasks not available", "results": []}), 200
+
+    from models.calendar_events import CalendarEvent
+    from util.white_raven_calendar_sync import promote_due_calendar_shoots_to_sprint
+
+    promote_due_calendar_shoots_to_sprint(scope, actor.user_id)
+
+    query = (
+        db.session.query(Task)
+        .options(
+            joinedload(Task.sprints),
+            joinedload(Task.status),
+            joinedload(Task.assignees),
+        )
+        .outerjoin(
+            CalendarEvent,
+            Task.calendar_event_id == CalendarEvent.calendar_event_id,
+        )
+        .filter(Task.active.is_(True))
+        .filter(Task.calendar_event_id.isnot(None))
+        .order_by(CalendarEvent.event_date.asc().nullslast(), Task.name.asc())
+    )
+    query = company_scope_filter(query, Task, actor, scope)
+
+    return jsonify(
+        {
+            "message": "school picture tasks found",
+            "results": _serialize_school_picture_tasks(query.all()),
+        }
     ), 200
 
 
@@ -141,16 +204,20 @@ def tasks_my_get(req: Request, auth_info) -> Response:
         return jsonify({"message": "Unauthorized"}), 401
 
     scope = resolve_scope_company_id(req, actor)
-    require_sprint = False
+    week_start = week_end = None
     if scope:
-        from util.white_raven_calendar_sync import (
-            my_tasks_require_sprint,
-            promote_due_calendar_shoots_to_sprint,
+        from util.weekly_sprints import (
+            ensure_weekly_sprint_rollover,
+            my_tasks_current_week_only,
+            sync_due_tasks_into_current_week_sprint,
         )
 
-        require_sprint = my_tasks_require_sprint(scope)
-        if require_sprint:
-            promote_due_calendar_shoots_to_sprint(scope, actor.user_id)
+        if my_tasks_current_week_only(scope):
+            ensure_weekly_sprint_rollover(scope, actor.user_id)
+            sync_due_tasks_into_current_week_sprint(scope, actor.user_id)
+            from util.task_workload import week_bounds
+
+            week_start, week_end = week_bounds()
 
     query = (
         db.session.query(Task)
@@ -159,12 +226,22 @@ def tasks_my_get(req: Request, auth_info) -> Response:
         .filter(Task.assignees.any(AppUser.user_id == actor.user_id))
         .order_by(Task.created_at.desc())
     )
-    if require_sprint:
-        query = query.filter(Task.sprints.any())
+    if week_start and week_end:
+        query = (
+            query.filter(Task.due_date.isnot(None))
+            .filter(Task.due_date >= week_start)
+            .filter(Task.due_date <= week_end)
+        )
     query = company_scope_filter(query, Task, actor, scope)
-    return jsonify(
-        {"message": "my tasks found", "results": _serialize_task_list(query.all())}
-    ), 200
+
+    payload = {
+        "message": "my tasks found",
+        "results": _serialize_task_list(query.all()),
+    }
+    if week_start and week_end:
+        payload["week_start"] = week_start.isoformat()
+        payload["week_end"] = week_end.isoformat()
+    return jsonify(payload), 200
 
 
 @authenticate_return_auth
@@ -177,7 +254,7 @@ def task_get_by_id(req: Request, task_id, auth_info) -> Response:
         return jsonify({"message": "invalid task id"}), 404
 
     task = _load_task_detail(task_id)
-    if not task:
+    if not task or not task.active:
         return jsonify({"message": "task not found"}), 404
 
     if not can_access_company(actor, task.company_id):
@@ -205,7 +282,52 @@ def _load_task_detail(task_id):
 def _serialize_task_detail(task):
     result = task_detail_schema.dump(task)
     result["in_sprint"] = len(task.sprints) > 0
+    result["is_school_task"] = task.calendar_event_id is not None
     return result
+
+
+def _is_transition_to_done(task, new_status_id):
+    from util.company_workflow import done_status_names
+
+    new_status = (
+        db.session.query(TaskStatus)
+        .filter(TaskStatus.task_status_id == new_status_id)
+        .filter(TaskStatus.company_id == task.company_id)
+        .first()
+    )
+    if not new_status:
+        return False
+    return new_status.name in done_status_names(task.company_id)
+
+
+def _validate_school_done_delivery(task, new_status_id):
+    if not task.calendar_event_id:
+        return None
+    if not new_status_id or not _is_transition_to_done(task, new_status_id):
+        return None
+    if task.delivery_date is not None:
+        return None
+    return jsonify({"message": "Delivery date is required when marking a school task done"}), 400
+
+
+def _apply_delivery_fields(task, payload):
+    if "delivery_date" not in payload and "delivery_picked_up_by" not in payload:
+        return None
+
+    if "delivery_date" in payload:
+        delivery_date = _parse_due_date(payload.pop("delivery_date"))
+        if delivery_date == "invalid":
+            return jsonify({"message": "Invalid delivery date"}), 400
+        task.delivery_date = delivery_date
+        if delivery_date is None:
+            task.delivery_picked_up_by = ""
+
+    if "delivery_picked_up_by" in payload:
+        if task.delivery_date is None:
+            return jsonify({"message": "Delivery date is required"}), 400
+        task.delivery_picked_up_by = (payload.pop("delivery_picked_up_by") or "").strip()
+
+    return None
 
 
 def _default_status_id(company_id):
@@ -283,7 +405,7 @@ def task_update(req: Request, task_id, auth_info) -> Response:
         .filter(Task.task_id == task_id)
         .first()
     )
-    if not task:
+    if not task or not task.active:
         return jsonify({"message": "task not found"}), 404
 
     scope = resolve_scope_company_id(req, actor)
@@ -298,6 +420,10 @@ def task_update(req: Request, task_id, auth_info) -> Response:
         if due_date == "invalid":
             return jsonify({"message": "Invalid due date"}), 400
         task.due_date = due_date
+
+    delivery_error = _apply_delivery_fields(task, payload)
+    if delivery_error:
+        return delivery_error
 
     if assignee_id:
         if not validate_uuid4(assignee_id):
@@ -325,12 +451,53 @@ def task_update(req: Request, task_id, auth_info) -> Response:
         if status_error:
             return jsonify({"message": status_error}), 400
 
+        delivery_error = _validate_school_done_delivery(task, payload["task_status_id"])
+        if delivery_error:
+            return delivery_error
+
     error = populate_object(task, payload)
     if error:
         return error
+
+    if "task_status_id" in payload:
+        from util.white_raven_calendar_sync import apply_school_task_status_assignee
+
+        status = (
+            db.session.query(TaskStatus)
+            .filter(TaskStatus.task_status_id == task.task_status_id)
+            .first()
+        )
+        if status:
+            apply_school_task_status_assignee(task, status.name)
 
     _return_task_to_backlog_pool(task)
 
     db.session.commit()
     task = _load_task_detail(task_id)
     return jsonify({"message": "task updated", "results": _serialize_task_detail(task)}), 200
+
+
+@authenticate_return_auth
+def task_delete(req: Request, task_id, auth_info) -> Response:
+    actor = get_actor(auth_info)
+    if not actor:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    if not validate_uuid4(task_id):
+        return jsonify({"message": "invalid task id"}), 404
+
+    task = (
+        db.session.query(Task)
+        .filter(Task.task_id == task_id)
+        .first()
+    )
+    if not task or not task.active:
+        return jsonify({"message": "task not found"}), 404
+
+    scope = resolve_scope_company_id(req, actor)
+    if not can_access_company_scoped(actor, task.company_id, scope):
+        return jsonify({"message": "Forbidden"}), 403
+
+    task.active = False
+    db.session.commit()
+    return jsonify({"message": "task deleted"}), 200

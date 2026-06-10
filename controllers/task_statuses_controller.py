@@ -9,7 +9,11 @@ from util.access_control import (
     get_actor,
     resolve_scope_company_id,
 )
-from util.company_workflow import company_by_id, project_board_views_for_company
+from util.company_workflow import (
+    company_by_id,
+    company_has_school_picture_tasks,
+    project_board_views_for_company,
+)
 from util.validate_uuid4 import validate_uuid4
 
 
@@ -36,6 +40,7 @@ def task_statuses_get(req: Request, auth_info) -> Response:
             "message": "task statuses found",
             "results": task_statuses_schema.dump(rows),
             "board_views": board_views,
+            "school_picture_tasks": company_has_school_picture_tasks(company_id),
         }
     ), 200
 
