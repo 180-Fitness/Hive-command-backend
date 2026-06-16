@@ -27,6 +27,7 @@ class Task(db.Model):
     description = db.Column(db.String(), nullable=False, default="")
     points_estimate = db.Column(db.Float(), nullable=True)
     due_date = db.Column(db.Date(), nullable=True)
+    finalize_start_date = db.Column(db.Date(), nullable=True)
     delivery_date = db.Column(db.Date(), nullable=True)
     delivery_picked_up_by = db.Column(db.String(), nullable=False, default="")
     calendar_event_id = db.Column(
@@ -62,6 +63,7 @@ class Task(db.Model):
         project_id=None,
         points_estimate=None,
         due_date=None,
+        finalize_start_date=None,
         delivery_date=None,
         delivery_picked_up_by="",
         calendar_event_id=None,
@@ -75,6 +77,7 @@ class Task(db.Model):
         self.project_id = project_id
         self.points_estimate = points_estimate
         self.due_date = due_date
+        self.finalize_start_date = finalize_start_date
         self.delivery_date = delivery_date
         self.delivery_picked_up_by = delivery_picked_up_by
         self.calendar_event_id = calendar_event_id
@@ -90,6 +93,7 @@ _LIST_FIELDS = (
     "description",
     "points_estimate",
     "due_date",
+    "finalize_start_date",
     "delivery_date",
     "delivery_picked_up_by",
     "calendar_event_id",

@@ -493,6 +493,10 @@ def task_update(req: Request, task_id, auth_info) -> Response:
 
     if "task_status_id" in payload:
         from util.company_workflow import validate_mark_done_transition
+        from util.school_picture_workflow import (
+            handle_school_picture_stage_change,
+            sync_school_picture_assignee,
+        )
 
         current_name = task.status.name if task.status else None
         status_error = validate_mark_done_transition(
@@ -508,13 +512,22 @@ def task_update(req: Request, task_id, auth_info) -> Response:
         if delivery_error:
             return delivery_error
 
+        new_status = (
+            db.session.query(TaskStatus)
+            .filter(TaskStatus.task_status_id == payload["task_status_id"])
+            .first()
+        )
+        new_name = new_status.name if new_status else None
+    else:
+        current_name = None
+        new_name = None
+
     error = populate_object(task, payload)
     if error:
         return error
 
     if "task_status_id" in payload:
-        from util.school_picture_workflow import sync_school_picture_assignee
-
+        handle_school_picture_stage_change(task, current_name, new_name, actor=actor)
         sync_school_picture_assignee(task, actor=actor, notify_assignment=True)
 
     _return_task_to_backlog_pool(task)

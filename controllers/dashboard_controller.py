@@ -14,6 +14,7 @@ from util.dashboard_accounts import verify_dashboard_credentials
 from util.school_picture_workflow import (
     attach_school_picture_fields,
     dashboard_bucket_date,
+    finalize_countdown_start,
     is_school_picture_task,
     picture_date,
     school_picture_in_pipeline,
@@ -70,7 +71,9 @@ def _build_school_shoots(tasks, today):
         if not is_school_picture_task(task):
             continue
         shoot = picture_date(task)
-        if not shoot or shoot > today:
+        if not shoot:
+            continue
+        if not finalize_countdown_start(task):
             continue
 
         serialized = _serialize_dashboard_task(task)

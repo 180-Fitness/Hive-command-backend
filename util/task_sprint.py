@@ -2,7 +2,7 @@ from db import db
 from models.task_statuses import TaskStatus
 from models.tasks_sprints_xref import task_sprints
 from util.company_workflow import backlog_status_names, sprint_promote_status_name
-from util.school_picture_workflow import sync_school_picture_assignee
+from util.school_picture_workflow import sync_school_picture_assignee, handle_school_picture_stage_change
 
 
 def _expire_sprint_membership(sprint=None, task=None):
@@ -43,7 +43,9 @@ def promote_task_entering_sprint(task):
         .first()
     )
     if next_status:
+        previous_name = status.name
         task.task_status_id = next_status.task_status_id
+        handle_school_picture_stage_change(task, previous_name, promote_name)
         sync_school_picture_assignee(task, notify_assignment=True)
 
 

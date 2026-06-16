@@ -12,7 +12,7 @@ from models.tasks import Task
 from util.access_control import can_access_company
 from models.tasks_sprints_xref import task_sprints
 from util.company_workflow import company_by_id, done_status_names
-from util.school_picture_workflow import sync_school_picture_assignee
+from util.school_picture_workflow import handle_school_picture_stage_change, sync_school_picture_assignee
 from util.task_sprint import (
     add_task_to_sprint,
     clear_task_sprints,
@@ -297,6 +297,7 @@ def sync_task_weekly_sprint_membership(task, created_by_id=None):
             upcoming_status = _status_by_name(task.company_id, upcoming_name)
             if upcoming_status:
                 task.task_status_id = upcoming_status.task_status_id
+                handle_school_picture_stage_change(task, current_name, upcoming_name)
                 sync_school_picture_assignee(task)
         return
 

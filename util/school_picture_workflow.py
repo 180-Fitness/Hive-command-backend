@@ -90,12 +90,33 @@ def sync_school_picture_assignee(task, company=None, actor=None, notify_assignme
     task.assignees.append(assignee)
     changed = previous_id != assignee.user_id
 
-    if notify_assignment and changed:
-        from util.task_assignment_notifications import notify_stage_assignment
+    if notify_assignment:
+        if status_name == config.SCHOOL_PICTURE_STAGE_PRINT:
+            from util.task_assignment_notifications import notify_print_stage_assignment
 
-        notify_stage_assignment(task, assignee, status_name, actor)
+            notify_print_stage_assignment(task, assignee, actor)
+        elif changed:
+            from util.task_assignment_notifications import notify_stage_assignment
+
+            notify_stage_assignment(task, assignee, status_name, actor)
 
     return changed
+
+
+def handle_school_picture_stage_change(task, previous_name, new_name, actor=None):
+    """Start or reset the finalize countdown when school tasks change pipeline stage."""
+    if not is_school_picture_task(task):
+        return
+
+    previous_name = (previous_name or "").strip()
+    new_name = (new_name or "").strip()
+    if previous_name == new_name:
+        return
+
+    if new_name == config.SCHOOL_PICTURE_STAGE_UPCOMING:
+        task.finalize_start_date = None
+    elif new_name == config.SCHOOL_PICTURE_STAGE_PICTURES:
+        task.finalize_start_date = date.today()
 
 
 def sync_all_school_picture_assignees(company_id):
@@ -151,11 +172,26 @@ def picture_date(task):
 
 
 def finalize_due_date(task, company=None):
-    shoot = picture_date(task)
-    if not shoot:
+    start = finalize_countdown_start(task)
+    if not start:
         return None
     company = company or company_by_id(task.company_id)
-    return shoot + timedelta(weeks=finalize_deadline_weeks(company))
+    return start + timedelta(weeks=finalize_deadline_weeks(company))
+
+
+def finalize_countdown_start(task):
+    """When the 3-week finalize window began (entering Pictures Taken and Edit)."""
+    if not is_school_picture_task(task):
+        return None
+    if task.finalize_start_date:
+        return task.finalize_start_date
+
+    status_name = _task_status_name(task)
+    if status_name == config.SCHOOL_PICTURE_STAGE_UPCOMING:
+        return None
+
+    # Legacy tasks already in the pipeline before finalize_start_date existed.
+    return picture_date(task)
 
 
 def pipeline_stage_defs(company):
@@ -196,10 +232,12 @@ def build_pipeline_payload(task, company=None):
 
     shoot = picture_date(task)
     finalize = finalize_due_date(task, company)
+    countdown_start = finalize_countdown_start(task)
 
     return {
         "is_school_picture": True,
         "picture_date": shoot.isoformat() if shoot else None,
+        "finalize_start_date": countdown_start.isoformat() if countdown_start else None,
         "finalize_due_date": finalize.isoformat() if finalize else None,
         "finalize_deadline_weeks": finalize_deadline_weeks(company),
         "current_stage": current_name or None,
@@ -232,6 +270,10 @@ def dashboard_bucket_date(task, today=None):
     if not shoot:
         return None
 
+    countdown_start = finalize_countdown_start(task)
+    if countdown_start:
+        return finalize_due_date(task)
+
     if shoot > today:
         return shoot
 
@@ -244,6 +286,9 @@ def school_picture_in_pipeline(task, today=None):
         return False
     if task.status and is_done_status_name(task.status.name):
         return False
+
+    if finalize_countdown_start(task):
+        return True
 
     shoot = task.due_date
     return bool(shoot and shoot <= today)
@@ -297,9 +342,9 @@ def school_shoot_dashboard_meta(task, today=None, company=None):
         card_state = "on_track"
         countdown_state = "early"
 
-    # Finalize countdown only applies after picture day (matches TV dashboard).
+    # Finalize countdown applies once Pictures Taken and Edit has started.
     display_days_remaining = days_remaining
-    if shoot and shoot > today and not done:
+    if not finalize_countdown_start(task) and not done:
         display_days_remaining = None
 
     return {
@@ -450,7 +495,9 @@ def build_school_shoot_delivery_report(tasks, today=None, company=None, month=No
         if not is_school_picture_task(task):
             continue
         shoot = picture_date(task)
-        if not shoot or shoot > today:
+        if not shoot:
+            continue
+        if not finalize_countdown_start(task):
             continue
         if month_start and month_end and not (month_start <= shoot <= month_end):
             continue

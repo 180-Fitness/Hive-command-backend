@@ -18,6 +18,8 @@ def ensure_task_due_date_column():
             "ALTER TABLE tasks ADD COLUMN calendar_event_id UUID "
             "REFERENCES calendar_events(calendar_event_id)"
         )
+    if "finalize_start_date" not in existing:
+        statements.append("ALTER TABLE tasks ADD COLUMN finalize_start_date DATE")
     if "delivery_date" not in existing:
         statements.append("ALTER TABLE tasks ADD COLUMN delivery_date DATE")
     if "delivery_picked_up_by" not in existing:
