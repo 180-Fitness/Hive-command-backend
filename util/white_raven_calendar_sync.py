@@ -1,7 +1,6 @@
 from random import choice
 
 import config
-from sqlalchemy import func
 
 from db import db
 from models.app_users import AppUser
@@ -9,7 +8,6 @@ from models.calendar_events import SHOOT_EVENT_TYPES, CalendarEvent
 from models.projects import Project
 from models.task_statuses import TaskStatus
 from models.tasks import Task
-from util.access_control import can_access_company
 from util.company_workflow import company_by_id
 from util.school_picture_workflow import sync_school_picture_assignee
 from util.weekly_sprints import (
@@ -95,25 +93,6 @@ def is_shoot_event(event, sync_cfg):
 
 def _normalized_name(value):
     return (value or "").strip().casefold()
-
-
-def _find_assignee(company_id, assignee_cfg):
-    first = _normalized_name(assignee_cfg.get("first_name"))
-    last = _normalized_name(assignee_cfg.get("last_name"))
-    if not first or not last:
-        return None
-
-    candidates = (
-        db.session.query(AppUser)
-        .filter(AppUser.active.is_(True))
-        .filter(func.lower(AppUser.first_name) == first)
-        .filter(func.lower(AppUser.last_name) == last)
-        .all()
-    )
-    for user in candidates:
-        if can_access_company(user, company_id):
-            return user
-    return None
 
 
 def _default_task_status(company_id, status_name):

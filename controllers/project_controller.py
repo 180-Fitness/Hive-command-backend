@@ -62,8 +62,8 @@ def project_get_by_id(req: Request, project_id, auth_info) -> Response:
 @authenticate_return_auth
 def project_add(req: Request, auth_info) -> Response:
     actor = get_actor(auth_info)
-    if not actor:
-        return jsonify({"message": "Unauthorized"}), 401
+    if not actor or not is_admin(actor):
+        return jsonify({"message": "Forbidden"}), 403
 
     payload = req.get_json() or {}
     company_id = effective_company_id(req, actor, payload)
@@ -102,7 +102,11 @@ def project_update(req: Request, project_id, auth_info) -> Response:
     if not can_access_company_scoped(actor, project.company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
-    error = populate_object(project, req.get_json() or {})
+    error = populate_object(
+        project,
+        req.get_json() or {},
+        allowed_fields=frozenset({"name", "color", "description", "client_id"}),
+    )
     if error:
         return error
 

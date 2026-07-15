@@ -278,7 +278,26 @@ def calendar_event_update(req: Request, event_id, auth_info) -> Response:
         payload.pop("project_id", None)
 
     payload.pop("source", None)
-    error = populate_object(event, payload)
+    payload.pop("company_id", None)
+    payload.pop("calendar_event_id", None)
+    payload.pop("created_at", None)
+    payload.pop("active", None)
+    error = populate_object(
+        event,
+        payload,
+        allowed_fields=frozenset(
+            {
+                "title",
+                "school",
+                "event_type",
+                "location",
+                "description",
+                "project_id",
+                "num_stations",
+                "num_students",
+            }
+        ),
+    )
     if error:
         return error
 
@@ -355,8 +374,8 @@ def calendar_sync_numbers(req: Request, auth_info) -> Response:
         return jsonify({"message": str(exc)}), 400
     except RuntimeError as exc:
         return jsonify({"message": str(exc)}), 501
-    except Exception as exc:
-        return jsonify({"message": f"Could not read Numbers file: {exc}"}), 400
+    except Exception:
+        return jsonify({"message": "Could not read Numbers file"}), 400
 
     min_event_date = date(date.today().year, 1, 1)
 

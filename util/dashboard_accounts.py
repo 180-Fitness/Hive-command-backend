@@ -29,7 +29,8 @@ def verify_dashboard_credentials(username, password):
         return None
 
     expected = _account_password(account)
-    if password != expected:
+    # Refuse empty or missing passwords — force DASHBOARD_*_PASSWORD in env for kiosk access.
+    if not expected or password != expected:
         return None
 
     company = (

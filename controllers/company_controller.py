@@ -6,6 +6,7 @@ from models.companies import Company, company_schema, companies_schema
 from util.access_control import (
     can_access_company_scoped,
     get_actor,
+    is_admin,
     is_enterprise_admin,
     resolve_scope_company_id,
 )
@@ -14,6 +15,10 @@ from util.company_seed import ensure_company_task_statuses
 from util.phone import normalize_phone
 from util.reflection import populate_object
 from util.validate_uuid4 import validate_uuid4
+
+COMPANY_EDITABLE_FIELDS = frozenset(
+    {"name", "code", "phone", "email", "city", "state", "postal", "color"}
+)
 
 
 @authenticate_return_auth
@@ -66,10 +71,11 @@ def company_add(req: Request, auth_info) -> Response:
 
     payload.pop("enterprise_id", None)
     payload.pop("company_id", None)
+    payload.pop("active", None)
     payload["name"] = name
 
     company = Company.blank(actor.enterprise_id)
-    error = populate_object(company, payload)
+    error = populate_object(company, payload, allowed_fields=COMPANY_EDITABLE_FIELDS)
     if error:
         return error
 
@@ -94,11 +100,11 @@ def company_update(req: Request, company_id, auth_info) -> Response:
         return jsonify({"message": "company not found"}), 404
 
     scope = resolve_scope_company_id(req, actor)
-    if not is_enterprise_admin(actor) and not can_access_company_scoped(actor, company_id, scope):
+    if not is_admin(actor) or not can_access_company_scoped(actor, company_id, scope):
         return jsonify({"message": "Forbidden"}), 403
 
-    payload = req.get_json() or {}
-    error = populate_object(company, payload)
+    payload = dict(req.get_json() or {})
+    error = populate_object(company, payload, allowed_fields=COMPANY_EDITABLE_FIELDS)
     if error:
         return error
 

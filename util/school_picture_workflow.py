@@ -91,13 +91,17 @@ def sync_school_picture_assignee(task, company=None, actor=None, notify_assignme
     changed = previous_id != assignee.user_id
 
     if notify_assignment:
+        from util.task_assignment_notifications import notify_stage_assignment
+
         if status_name == config.SCHOOL_PICTURE_STAGE_PRINT:
-            from util.task_assignment_notifications import notify_print_stage_assignment
-
-            notify_print_stage_assignment(task, assignee, actor)
+            notify_stage_assignment(
+                task,
+                assignee,
+                status_name,
+                actor,
+                include_finalize_countdown=True,
+            )
         elif changed:
-            from util.task_assignment_notifications import notify_stage_assignment
-
             notify_stage_assignment(task, assignee, status_name, actor)
 
     return changed

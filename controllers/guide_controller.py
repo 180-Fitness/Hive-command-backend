@@ -116,7 +116,11 @@ def guide_update(req: Request, guide_id, auth_info) -> Response:
     if "title" in payload and not str(payload.get("title", "")).strip():
         return jsonify({"message": "Title is required"}), 400
 
-    error = populate_object(guide, payload)
+    error = populate_object(
+        guide,
+        payload,
+        allowed_fields=frozenset({"title", "summary", "body", "sort_order", "active"}),
+    )
     if error:
         return error
 

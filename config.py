@@ -188,13 +188,14 @@ palette = [
     "#4F46E5",
 ]
 
-# TV dashboard kiosk logins (one account per company)
+# TV dashboard kiosk logins (one account per company).
+# Set DASHBOARD_WHITERAVEN_PASSWORD in the environment — no insecure default.
 dashboard_accounts = [
     {
         "username": "whiteraven-dashboard",
         "company_name": "White Raven",
         "password_env": "DASHBOARD_WHITERAVEN_PASSWORD",
-        "default_password": "Test123!",
+        "default_password": "",
     },
 ]
 

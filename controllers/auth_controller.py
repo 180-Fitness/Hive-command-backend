@@ -1,4 +1,3 @@
-import os
 from datetime import datetime, timedelta, timezone
 
 from flask import Request, Response, jsonify
@@ -11,11 +10,15 @@ from db import db
 from lib.authenticate import authenticate_return_auth
 from models.app_users import AppUser, user_schema
 from models.auth_tokens import AuthTokens, auth_token_schema
+from util.rate_limit import client_key, login_limiter, rate_limited_response
 
 
 def auth_token_add(req: Request) -> Response:
     if req.content_type != "application/json":
         return jsonify({"message": "Request must be JSON"}), 400
+
+    if not login_limiter.is_allowed(client_key(req, "login")):
+        return rate_limited_response()
 
     payload = req.get_json() or {}
     email = payload.get("email")
@@ -76,8 +79,11 @@ def auth_check_login(req: Request, auth_info) -> Response:
         db.session.query(AppUser)
         .options(joinedload(AppUser.assigned_companies))
         .filter(AppUser.user_id == auth_info.user_id)
+        .filter(AppUser.active.is_(True))
         .first()
     )
+    if not user:
+        return jsonify({"message": "Unauthorized"}), 401
     return jsonify(
         {
             "message": "success",

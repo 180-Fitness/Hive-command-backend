@@ -11,6 +11,7 @@ from models.companies import Company, company_schema
 from models.dashboard_auth_tokens import DashboardAuthTokens, dashboard_auth_token_schema
 from models.tasks import Task
 from util.dashboard_accounts import verify_dashboard_credentials
+from util.rate_limit import client_key, dashboard_login_limiter, rate_limited_response
 from util.school_picture_workflow import (
     attach_school_picture_fields,
     dashboard_bucket_date,
@@ -148,7 +149,7 @@ def _build_company_summary(company, today, week_start, week_end):
             continue
 
         if due < today:
-            due_today.append(serialized)
+            overdue.append(serialized)
         elif due == today:
             due_today.append(serialized)
         elif due <= week_end:
@@ -205,6 +206,9 @@ def dashboard_auth_add(req: Request) -> Response:
     if req.content_type != "application/json":
         return jsonify({"message": "Request must be JSON"}), 400
 
+    if not dashboard_login_limiter.is_allowed(client_key(req, "dashboard-login")):
+        return rate_limited_response()
+
     payload = req.get_json() or {}
     username = payload.get("username")
     password = payload.get("password")
@@ -248,6 +252,7 @@ def dashboard_auth_check_login(req: Request, auth_info) -> Response:
     company = (
         db.session.query(Company)
         .filter(Company.company_id == auth_info.company_id)
+        .filter(Company.active.is_(True))
         .first()
     )
     if not company:

@@ -127,6 +127,16 @@ def manageable_users_filter(query, actor):
     )
 
 
+def _enterprise_company_ids(enterprise_id):
+    from db import db
+    from models.companies import Company
+
+    return db.session.query(Company.company_id).filter(
+        Company.enterprise_id == enterprise_id,
+        Company.active.is_(True),
+    )
+
+
 def company_scope_filter(query, model, user, scope_company_id=None):
     from sqlalchemy import or_
 
@@ -148,7 +158,13 @@ def company_scope_filter(query, model, user, scope_company_id=None):
         return query.filter(model.company_id == scope_company_id)
 
     if is_enterprise_admin(user):
-        return query
+        if getattr(model, "__tablename__", None) == "app_users" and hasattr(
+            model, "enterprise_id"
+        ):
+            return query.filter(model.enterprise_id == user.enterprise_id)
+        return query.filter(
+            model.company_id.in_(_enterprise_company_ids(user.enterprise_id))
+        )
 
     from util.user_companies import get_user_company_ids
 

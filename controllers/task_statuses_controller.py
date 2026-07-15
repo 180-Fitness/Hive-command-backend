@@ -7,6 +7,7 @@ from util.access_control import (
     can_access_company_scoped,
     effective_company_id,
     get_actor,
+    is_admin,
     resolve_scope_company_id,
 )
 from util.company_workflow import (
@@ -56,8 +57,8 @@ def task_statuses_get(req: Request, auth_info) -> Response:
 @authenticate_return_auth
 def task_status_add(req: Request, auth_info) -> Response:
     actor = get_actor(auth_info)
-    if not actor:
-        return jsonify({"message": "Unauthorized"}), 401
+    if not actor or not is_admin(actor):
+        return jsonify({"message": "Forbidden"}), 403
 
     payload = req.get_json() or {}
     company_id = effective_company_id(req, actor, payload)
@@ -81,8 +82,8 @@ def task_status_add(req: Request, auth_info) -> Response:
 @authenticate_return_auth
 def task_status_update(req: Request, task_status_id, auth_info) -> Response:
     actor = get_actor(auth_info)
-    if not actor:
-        return jsonify({"message": "Unauthorized"}), 401
+    if not actor or not is_admin(actor):
+        return jsonify({"message": "Forbidden"}), 403
 
     if not validate_uuid4(task_status_id):
         return jsonify({"message": "invalid task status id"}), 404

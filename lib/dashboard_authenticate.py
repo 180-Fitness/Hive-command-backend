@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from flask import Response
 
 from db import db
+from models.companies import Company
 from models.dashboard_auth_tokens import DashboardAuthTokens
 from util.validate_uuid4 import validate_uuid4
 
@@ -14,12 +15,24 @@ def resolve_dashboard_auth_token(request):
     if not token or not validate_uuid4(token):
         return None
 
-    return (
+    auth = (
         db.session.query(DashboardAuthTokens)
         .filter(DashboardAuthTokens.auth_token == token)
         .filter(DashboardAuthTokens.expiration > datetime.now(timezone.utc))
         .first()
     )
+    if not auth:
+        return None
+
+    company_active = (
+        db.session.query(Company.active)
+        .filter(Company.company_id == auth.company_id)
+        .scalar()
+    )
+    if not company_active:
+        return None
+
+    return auth
 
 
 def unauthorized():

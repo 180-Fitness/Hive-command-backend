@@ -491,6 +491,16 @@ def task_update(req: Request, task_id, auth_info) -> Response:
     if "task_id" in payload:
         return jsonify({"message": "update not allowed"}), 405
 
+    for protected in (
+        "company_id",
+        "created_by_id",
+        "created_at",
+        "updated_at",
+        "active",
+        "calendar_event_id",
+    ):
+        payload.pop(protected, None)
+
     if "task_status_id" in payload:
         from util.company_workflow import validate_mark_done_transition
         from util.school_picture_workflow import (
@@ -522,7 +532,23 @@ def task_update(req: Request, task_id, auth_info) -> Response:
         current_name = None
         new_name = None
 
-    error = populate_object(task, payload)
+    error = populate_object(
+        task,
+        payload,
+        allowed_fields=frozenset(
+            {
+                "name",
+                "description",
+                "project_id",
+                "task_status_id",
+                "points_estimate",
+                "due_date",
+                "finalize_start_date",
+                "delivery_date",
+                "delivery_picked_up_by",
+            }
+        ),
+    )
     if error:
         return error
 

@@ -1,10 +1,13 @@
 """White Raven company employee roster."""
 
+import os
+
 from util.access_control import COMPANY_ADMIN, MEMBER
 
 COMPANY_NAME = "White Raven"
 EMAIL_DOMAIN = "hive.com"
-DEFAULT_PASSWORD = "Test123!"
+# Prefer env override for seed scripts; keep a local-dev fallback only for seeding.
+DEFAULT_PASSWORD = os.getenv("HIVE_SEED_PASSWORD") or os.getenv("HIVE_ADMIN_PASSWORD") or "Test123!"
 
 # UI labels map to Hive Command roles: User -> member, Company Admin -> company-admin
 ROLE_USER = MEMBER

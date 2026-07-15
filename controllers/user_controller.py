@@ -288,6 +288,10 @@ def user_update(req: Request, user_id, auth_info) -> Response:
 
     payload = dict(req.get_json() or {})
 
+    # Never mass-assign identity / tenancy PKs
+    for protected in ("user_id", "enterprise_id", "created_at"):
+        payload.pop(protected, None)
+
     if is_member(actor):
         payload.pop("role", None)
         payload.pop("company_id", None)
@@ -328,7 +332,13 @@ def user_update(req: Request, user_id, auth_info) -> Response:
             return jsonify({"message": "A user with that email already exists"}), 409
         payload["email"] = email
 
-    error = populate_object(user, payload)
+    member_fields = frozenset(
+        {"first_name", "last_name", "email", "phone", "job_title", "color", "password"}
+    )
+    admin_fields = member_fields | frozenset({"role", "company_id", "active"})
+    allowed = member_fields if is_member(actor) else admin_fields
+
+    error = populate_object(user, payload, allowed_fields=allowed)
     if error:
         return error
 

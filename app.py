@@ -1,4 +1,5 @@
 import os
+import re
 from random import choice
 
 from dotenv import load_dotenv
@@ -63,6 +64,20 @@ def _cors_origins():
         url = url.strip().rstrip("/")
         if url and url not in origins:
             origins.append(url)
+    # Private LAN origins for phone / local network testing
+    if os.getenv("ALLOW_LAN_CORS", "1").lower() in ("1", "true", "yes"):
+        origins.extend(
+            [
+                re.compile(
+                    r"^https?://("
+                    r"localhost|127\.0\.0\.1|"
+                    r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+                    r"192\.168\.\d{1,3}\.\d{1,3}|"
+                    r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}"
+                    r")(:\d+)?$"
+                )
+            ]
+        )
     return origins
 
 
@@ -164,7 +179,29 @@ CORS(
 Marshmallow(app)
 register_blueprints(app)
 
+# Upload size cap (Numbers calendar sync and any future uploads)
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_UPLOAD_BYTES", 15 * 1024 * 1024))
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Permissions-Policy", "geolocation=(), microphone=(), camera=()"
+    )
+    if os.getenv("ENABLE_HSTS", "").lower() in ("1", "true", "yes"):
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 if __name__ == "__main__":
     create_all(bcrypt)
-    app.run(port=os.getenv("PORT", "8090"), debug=True)
+    app.run(
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=os.getenv("PORT", "8090"),
+        debug=os.getenv("FLASK_DEBUG", "0") in ("1", "true", "yes"),
+    )

@@ -1,7 +1,10 @@
 from flask import jsonify
 
+from lib.authenticate import authenticate
 
-def not_enabled():
+
+@authenticate
+def not_enabled(req):
     return jsonify(
         {
             "message": "This capability is not enabled for Hive Command private deployments.",

@@ -33,7 +33,9 @@ def _finalize_countdown_suffix(task):
     return f" {days} days left until the {weeks}-week deadline ({due_label})."
 
 
-def notify_stage_assignment(task, assignee, stage_name, actor=None):
+def notify_stage_assignment(
+    task, assignee, stage_name, actor=None, include_finalize_countdown=False
+):
     """Notify the stage assignee when a school task enters their pipeline stage."""
     if not task or not assignee or not stage_name:
         return 0
@@ -41,34 +43,8 @@ def notify_stage_assignment(task, assignee, stage_name, actor=None):
     if actor and actor.user_id == assignee.user_id:
         return 0
 
-    message = f'"{task.name}" was moved to {stage_name} and assigned to you.'
-    link = f"/task/{task.task_id}"
-
-    db.session.add(
-        Notification(
-            receiver_id=assignee.user_id,
-            company_id=task.company_id,
-            notification_type=TASK_ASSIGNED_TYPE,
-            message=message,
-            link=link,
-        )
-    )
-    return 1
-
-
-def notify_print_stage_assignment(task, assignee, actor=None):
-    """Notify Martha when printing starts, including time left on the finalize window."""
-    if not task or not assignee:
-        return 0
-
-    if actor and actor.user_id == assignee.user_id:
-        return 0
-
-    stage_name = "Print"
-    message = (
-        f'"{task.name}" was moved to {stage_name} and assigned to you.'
-        f"{_finalize_countdown_suffix(task)}"
-    )
+    suffix = _finalize_countdown_suffix(task) if include_finalize_countdown else ""
+    message = f'"{task.name}" was moved to {stage_name} and assigned to you.{suffix}'
     link = f"/task/{task.task_id}"
 
     db.session.add(

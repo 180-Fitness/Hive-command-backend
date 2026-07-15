@@ -4,7 +4,7 @@ from db import db
 from lib.authenticate import authenticate_return_auth
 from models.comments import Comment, comment_detail_schema, comments_detail_schema
 from models.tasks import Task
-from util.access_control import can_access_company
+from util.access_control import can_access_company, is_admin
 from util.reflection import populate_object
 from util.task_comment_notifications import notify_task_assignees_of_comment
 from util.validate_uuid4 import validate_uuid4
@@ -125,10 +125,7 @@ def comment_delete(req: Request, comment_id, auth_info) -> Response:
     if error:
         return error
 
-    if comment.user_id != auth_info.user_id and auth_info.user.role not in (
-        "company_admin",
-        "enterprise_admin",
-    ):
+    if comment.user_id != auth_info.user_id and not is_admin(auth_info.user):
         return jsonify({"message": "Forbidden"}), 403
 
     db.session.delete(comment)

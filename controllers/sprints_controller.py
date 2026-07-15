@@ -136,8 +136,8 @@ def sprint_get_by_id(req: Request, sprint_id, auth_info) -> Response:
 @authenticate_return_auth
 def sprint_add(req: Request, auth_info) -> Response:
     actor = get_actor(auth_info)
-    if not actor:
-        return jsonify({"message": "Unauthorized"}), 401
+    if not actor or not is_admin(actor):
+        return jsonify({"message": "Forbidden"}), 403
 
     payload = req.get_json() or {}
     company_id = effective_company_id(req, actor, payload)
